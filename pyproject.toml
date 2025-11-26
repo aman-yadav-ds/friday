@@ -10,4 +10,5 @@ dependencies = [
     "protobuf<=4.25.3",
     "torch>=2.9.1",
     "torchvision>=0.24.1",
+    "whisper>=1.1.10",
 ]
