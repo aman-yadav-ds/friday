@@ -5,6 +5,7 @@ import time
 import webbrowser
 
 # Imports - Spotify API
+# Because who codes in silence?
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 from spotipy.exceptions import SpotifyException
@@ -20,8 +21,9 @@ class SpotifyTool:
         self.redirect_uri = redirect_uri or os.getenv("SPOTIFY_REDIRECT_URI")
 
         if not all([self.client_id, self.client_secret, self.redirect_uri]):
-            raise ValueError("Spotify credentials are not fully set in environment variables.")
+            raise ValueError("Yo, where are the keys? Set SPOTIFY_CLIENT_ID and friends in .env")
         
+        # Authenticate with the mothership
         self.sp = spotipy.Spotify(auth_manager=SpotifyOAuth(
             client_id=self.client_id,
             client_secret=self.client_secret,
@@ -54,8 +56,8 @@ class SpotifyTool:
 
     def _wait_for_device(self, max_attempts=10, wait_time=2):
         """
-        Waits for a Spotify device to become available.
-        Returns device_id if found, None otherwise.
+        Stalks your Spotify devices until one wakes up.
+        Returns the device_id if we catch one, otherwise gives up.
         """
         for attempt in range(max_attempts):
             try:
@@ -73,7 +75,8 @@ class SpotifyTool:
 
     def play_song(self, song_name):
         """
-        Searches for a song by name and plays it on the user's active device.
+        The DJ Request Line.
+        Finds a track and blasts it on whatever device is listening.
         """
 
         try:
@@ -98,7 +101,7 @@ class SpotifyTool:
                 
                 device_id = self._wait_for_device()
             else:
-                device_id = devices['devices'][0]['id'] # Use the first available device
+                device_id = devices['devices'][0]['id'] # Grab the first thing we see
             self.sp.start_playback(device_id=device_id, uris=[track_uri])
 
             return f"Now Playing: '{track_title}' by {artist_name}'"
@@ -107,7 +110,7 @@ class SpotifyTool:
     
     def stop_playback(self):
         """
-        Stops playback on the user's active device.
+        Kill the vibe. Silence the music.
         """
         try:
             self.sp.pause_playback()

@@ -7,14 +7,20 @@ mp_hands = mp.solutions.hands
 mp_drawing = mp.solutions.drawing_utils
 mp_styles = mp.solutions.drawing_styles
 
+# Initialize the Hand Tracker
+# This little guy uses Google's magic to find your hands in 3D space.
 hands = mp_hands.Hands(
     static_image_mode=False,
-    max_num_hands=2,
+    max_num_hands=2, # Two hands max. Unless you're Goro from Mortal Kombat.
     min_detection_confidence=0.5,
     min_tracking_confidence=0.5
 )
 
+# Open the webcam (The All-Seeing Eye)
 cap = cv2.VideoCapture(0)
+
+# A rolling buffer of history.
+# We remember the last 64 frames to understand movement over time.
 buffer_len = 64
 landmark_buffer = deque(maxlen=buffer_len)
 
@@ -31,7 +37,8 @@ while True:
                     (10, 60), 
                     cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
 
-        # Draw connections & landmarks for each hand
+        # Draw the skeleton! 💀
+        # Connect the dots so we can see the hand structure.
         for hand_landmarks in results.multi_hand_landmarks:
             mp_drawing.draw_landmarks(
                 frame,
@@ -42,6 +49,7 @@ while True:
             )
 
         # Build feature vector
+        # Flatten the 3D coordinates into a 1D pancake for the model.
         feat = np.zeros((2, 21, 3), dtype=np.float32)
         for i, lm in enumerate(results.multi_hand_landmarks):
             for p, l in enumerate(lm.landmark):
