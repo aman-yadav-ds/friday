@@ -11,3 +11,4 @@ wheels/
 .env
 input.wav
 response.mp3
+.cache
