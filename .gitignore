@@ -12,3 +12,4 @@ wheels/
 input.wav
 response.mp3
 .cache
+memory_db

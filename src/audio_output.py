@@ -26,12 +26,23 @@ class AudioOutput:
         Uses Edge TTS to generate audio bytes from text.
         Returns an in-memory BytesIO stream because disk I/O is for chumps.
         """
-        communicate = edge_tts.Communicate(text, "en-US-EmmaNeural")
-        audio_data = b""
-        async for chunk in communicate.stream():
-            if chunk["type"] == "audio":
-                audio_data += chunk["data"]
-        return io.BytesIO(audio_data)
+        if not text or not text.strip():
+            return None
+            
+        try:
+            communicate = edge_tts.Communicate(text, "en-US-EmmaNeural")
+            audio_data = b""
+            async for chunk in communicate.stream():
+                if chunk["type"] == "audio":
+                    audio_data += chunk["data"]
+            
+            if not audio_data:
+                return None
+                
+            return io.BytesIO(audio_data)
+        except Exception as e:
+            print(f"⚠️ TTS Generation Error: {e}")
+            return None
 
     async def play_audio_stream(self, audio_stream):
         """
@@ -39,6 +50,9 @@ class AudioOutput:
         Plays a single audio stream. Monitors the 'stop_event' like a hawk
         to cut off speech instantly if interrupted.
         """
+        if not audio_stream:
+            return True
+
         audio_stream.seek(0)
         try:
             pygame.mixer.music.load(audio_stream)
@@ -73,8 +87,10 @@ class AudioOutput:
             if self.stop_event.is_set():
                 self.audio_queue.task_done()
                 continue
-                
-            await self.play_audio_stream(audio_stream)
+            
+            if audio_stream:
+                await self.play_audio_stream(audio_stream)
+            
             self.audio_queue.task_done()
 
     async def speak(self, text_stream, on_start_speaking=None):
@@ -112,6 +128,9 @@ class AudioOutput:
                         if self.stop_event.is_set():
                             break
                         
+                        if not sentence.strip():
+                            continue
+
                         # Signal start of speech (e.g., to pause VAD)
                         if on_start_speaking:
                             on_start_speaking()
@@ -120,17 +139,19 @@ class AudioOutput:
                         
                         # Generate and queue audio
                         audio_stream = await self.generate_audio_stream(sentence)
-                        await self.audio_queue.put(audio_stream)
+                        if audio_stream:
+                            await self.audio_queue.put(audio_stream)
                         
                     text_buffer = sentences[-1]
         
         # Flush remaining text
-        if text_buffer and not self.stop_event.is_set():
+        if text_buffer and text_buffer.strip() and not self.stop_event.is_set():
             if on_start_speaking:
                 on_start_speaking()
             print(f"🗣️ AI Speaking: {text_buffer}")
             audio_stream = await self.generate_audio_stream(text_buffer)
-            await self.audio_queue.put(audio_stream)
+            if audio_stream:
+                await self.audio_queue.put(audio_stream)
             
         # Wait for the queue to drain
         await self.audio_queue.join()

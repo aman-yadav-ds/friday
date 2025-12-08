@@ -77,14 +77,31 @@ class SpotifyTool:
         """
         The DJ Request Line.
         Finds a track and blasts it on whatever device is listening.
+        Now with smarter search! 🧠
         """
-
         try:
-            results = self.sp.search(q=song_name, type='track', limit=1)
+            # 1. Smarter Search Construction
+            search_q = song_name
+            if " by " in song_name.lower():
+                parts = song_name.lower().split(" by ")
+                if len(parts) >= 2:
+                    track = parts[0].strip()
+                    artist = parts[1].strip()
+                    # Spotify syntax: track:Name artist:Name
+                    search_q = f"track:{track} artist:{artist}"
+            
+            print(f"🎵 Searching Spotify for: {search_q}")
+            results = self.sp.search(q=search_q, type='track', limit=1)
             tracks = results['tracks']['items']
 
+            # 2. Fallback to raw string if specific search fails
+            if not tracks and search_q != song_name:
+                 print(f"⚠️ Specific search failed. Retrying with raw query: {song_name}")
+                 results = self.sp.search(q=song_name, type='track', limit=1)
+                 tracks = results['tracks']['items']
+
             if not tracks:
-                raise f"Error: No tracks found for '{song_name}'"
+                return f"Error: No tracks found for '{song_name}'"
             
             track_uri = tracks[0]['uri']
             track_title = tracks[0]['name']
