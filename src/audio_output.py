@@ -30,7 +30,7 @@ class AudioOutput:
             return None
             
         try:
-            communicate = edge_tts.Communicate(text, "en-US-EmmaNeural")
+            communicate = edge_tts.Communicate(text, "en-US-JennyNeural")
             audio_data = b""
             async for chunk in communicate.stream():
                 if chunk["type"] == "audio":

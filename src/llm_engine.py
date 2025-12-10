@@ -206,43 +206,84 @@ class LLMEngine:
 
     def generate_response_stream(self, text):
         """
-        Stream the response from the graph.
-        HANDLES EXTERNAL MEMORY INJECTION & STORAGE.
+        Stream the human-speakable part of the assistant response.
+        Filters out tool messages, logs, emojis, and system noise.
         """
-        print("🧠 Thinking (External Memory Mode)...")
-        
-        # 1. INTELLIGENT RETRIEVAL CHECK
+        print("🧠 Thinking...")
+
+        # --- 1. MEMORY RETRIEVAL ---
         relevant_memories = ""
         if self.should_retrieve_memory(text):
             relevant_memories = self.memory_manager.retrieve(text)
         else:
             print("🚫 Skipping Memory Retrieval (Action-based).")
-        
-        # 2. Construct System Prompt with Context
+
+        # --- 2. System prompt construction ---
         current_system_prompt = self.base_system_message
         if relevant_memories:
-            print(f"📚 Context found: {relevant_memories}")
             current_system_prompt += f"\n\nRelevant Memories:\n{relevant_memories}"
-        
+
         initial_state = {
-            "messages": [SystemMessage(content=current_system_prompt), HumanMessage(content=text)], 
+            "messages": [
+                SystemMessage(content=current_system_prompt),
+                HumanMessage(content=text)
+            ],
             "next_node": ""
         }
-        
-        full_response = ""
-        
+
+        full_response_text = ""
+
+        # --- 3. STREAM RESPONSE ---
         for event in self.app.stream(initial_state):
             for node_name, values in event.items():
-                if "messages" in values and values["messages"]:
-                    last_msg = values["messages"][-1]
-                    if isinstance(last_msg, AIMessage) and last_msg.content:
-                         chunk = last_msg.content
-                         full_response = chunk 
-                         yield chunk
+                if "messages" not in values:
+                    continue
 
-        # 4. STORE Memory (After interaction)
-        if full_response:
-             self.memory_manager.store(text, full_response)
+                last_msg = values["messages"][-1]
+                if not isinstance(last_msg, AIMessage):
+                    continue
+
+                chunk = last_msg.content or ""
+                clean = self._clean_chunk(chunk)
+                if not clean.strip():
+                    continue
+
+                full_response_text += clean + " "
+                yield clean
+
+        # --- 4. STORE MEMORY ---
+        if full_response_text.strip():
+            self.memory_manager.store(text, full_response_text.strip())
+
+    def _clean_chunk(self, text: str) -> str:
+        """
+        Remove emojis, tool-call messages, and system chatter.
+        Leaves only human-speakable content.
+        """
+        import re
+
+        # Remove emojis and unicode symbols (private & pictographic ranges)
+        text = re.sub(r"[\U0001F600-\U0001FAFF]", "", text)
+        text = re.sub(r"[\U0001F300-\U0001F5FF]", "", text)
+        text = re.sub(r"[\U0001F900-\U0001F9FF]", "", text)
+
+        # Remove tool-calls
+        if text.strip().startswith("<tool") or text.strip().startswith("Tool Output"):
+            return ""
+
+        # Remove supervisor/debug chatter
+        bad_prefixes = [
+            "🧠", "🤔", "🚫", "🚦", "🛠️", 
+            "Searching", "Tool Output", "Calling tool", 
+            "Worker", "Supervisor"
+        ]
+        for b in bad_prefixes:
+            if text.strip().startswith(b):
+                return ""
+
+        return text.strip()
+
+
 
 if __name__ == "__main__":
     llm = LLMEngine()
