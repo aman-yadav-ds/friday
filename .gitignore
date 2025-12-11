@@ -13,3 +13,8 @@ input.wav
 response.mp3
 .cache
 memory_db
+
+# Piper Voices
+piper_voices
+*.onnx
+*.onnx.json

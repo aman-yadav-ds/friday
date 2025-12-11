@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 
 # Import Tools
 from utils.tools.entertainment import play_music, stop_music
+from utils.helpers import read_yaml_config
 from src.memory_manager import MemoryManager
 
 load_dotenv()
@@ -30,21 +31,24 @@ class LLMEngine:
     - Workers: Cloud Llama-70B (Groq)
     - Memory: External Manager (Chroma)
     """
-    def __init__(self):
+    def __init__(self, config_path="config/config.yaml"):
+        self.config = read_yaml_config(config_path)
+        self.brain_settings = self.config.get("brain_settings", {})
+
         # 1. Initialize Memory Manager
         self.memory_manager = MemoryManager()
 
         # 2. Initialize LLMs
         # Worker LLM (Smart, Cloud - Groq)
         self.worker_llm = ChatGroq(
-            model="llama-3.3-70b-versatile",
+            model=self.brain_settings.get("worker_llm", "llama-3.3-70b-versatile"),
             api_key=os.getenv("GROQ_API_KEY"),
             temperature=0.7
         )
         
         # Supervisor LLM (Fast, Local)
         self.supervisor_llm = ChatGroq(
-            model="llama-3.1-8b-instant",
+            model=self.brain_settings.get("supervisor_llm", "llama-3.1-8b-instant"),
             api_key=os.getenv("GROQ_API_KEY"),
             temperature=0.5
         )

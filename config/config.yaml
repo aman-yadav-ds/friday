@@ -1,0 +1,24 @@
+audio_settings:
+  wake_word: "Emma"
+  wake_word_timeout: 30
+  wake_word_buffer_size: 3.0
+  wake_check_interval: 0.5
+  chunks: 512
+  channels: 1
+  sample_rate: 16000
+  threshold: 200
+  barge_in_rms: 3000
+  barge_in_confidence: 0.8
+
+brain_settings:
+  worker_llm: "llama-3.3-70b-versatile"
+  supervisor_llm: "llama-3.1-8b-instant"
+
+voice_settings:
+  model: "./piper_voices/en_GB-cori-high.onnx"
+
+memory_settings:
+  path: "memory_db"
+  n_results: 3
+  embedding_model: "all-MiniLM-L6-v2"
+  

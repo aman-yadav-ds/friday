@@ -6,6 +6,7 @@ import torch
 import time
 from faster_whisper import WhisperModel
 from dotenv import load_dotenv
+from utils.helpers import read_yaml_config
 
 load_dotenv()
 
@@ -15,7 +16,9 @@ class AudioInput:
     Responsible for listening to the microphone, detecting voice activity (VAD),
     and transcribing speech to text using Faster-Whisper.
     """
-    def __init__(self, stop_event, wake_word="friday", wake_word_enabled=True):
+    def __init__(self, stop_event, wake_word_enabled=True, config_path="config/config.yaml"):
+        self.config = read_yaml_config(config_path)
+        self.audio_settings = self.config.get("audio_settings", {})
         # The "Kill Switch" event. If set, we stop any active output.
         self.stop_event = stop_event
         
@@ -26,28 +29,28 @@ class AudioInput:
         self.audio_queue = queue.Queue()
         
         # --- Wake Word Configuration ---
-        self.wake_word = wake_word.lower()
+        self.wake_word = self.audio_settings.get("wake_word", "emma").lower()
         self.wake_word_enabled = wake_word_enabled
         self.is_awake = not wake_word_enabled  # If disabled, we're always listening.
-        self.wake_word_timeout = 30  # Seconds of silence before we snooze.
+        self.wake_word_timeout = self.audio_settings.get("wake_word_timeout", 30)  # Seconds of silence before we snooze.
         self.last_wake_time = 0
-        self.wake_word_buffer_size = 3.0  # Rolling buffer size (in seconds) for wake detection.
+        self.wake_word_buffer_size = self.audio_settings.get("wake_word_buffer_size", 3.0)  # Rolling buffer size (in seconds) for wake detection.
         
         # Throttling for wake word checks (prevent CPU spam)
         self.last_wake_check_time = 0
-        self.WAKE_CHECK_INTERVAL = 0.5 # Check at most every 0.5 seconds
+        self.WAKE_CHECK_INTERVAL = self.audio_settings.get("wake_check_interval", 0.5) # Check at most every 0.5 seconds
         
         # --- Audio Stream Settings ---
-        self.CHUNKS = 512       # Buffer size. Lower = less latency, Higher = less CPU load.
+        self.CHUNKS = self.audio_settings.get("chunks", 512)       # Buffer size. Lower = less latency, Higher = less CPU load.
         self.FORMAT = pyaudio.paInt16 # 16-bit audio. Standard for speech recognition.
-        self.CHANNELS = 1       # Mono audio. We only need one ear.
-        self.RATE = 16000       # 16kHz sample rate. The native tongue of Whisper.
+        self.CHANNELS = self.audio_settings.get("channels", 1)       # Mono audio. We only need one ear.
+        self.RATE = self.audio_settings.get("sample_rate", 16000)       # 16kHz sample rate. The native tongue of Whisper.
         
         # --- Voice Activity Detection (VAD) Thresholds ---
         # RMS (Root Mean Square) = Volume.
-        self.RMS_THRESHOLD = 300      # Noise floor. Ignore anything quieter than this.
-        self.BARGE_IN_RMS = 3000      # Interruption threshold. Yell louder than this to stop the bot.
-        self.BARGE_IN_CONFIDENCE = 0.8 # VAD confidence required to interrupt.
+        self.RMS_THRESHOLD = self.audio_settings.get("threshold", 200)      # Noise floor. Ignore anything quieter than this.
+        self.BARGE_IN_RMS = self.audio_settings.get("barge_in_rms", 3000)      # Interruption threshold. Yell louder than this to stop the bot.
+        self.BARGE_IN_CONFIDENCE = self.audio_settings.get("barge_in_confidence", 0.8) # VAD confidence required to interrupt.
         
         # State flag: Are we currently outputting audio?
         self.is_speaking = False
