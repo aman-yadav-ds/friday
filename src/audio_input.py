@@ -318,7 +318,7 @@ class AudioInput:
             "please subscribe", "like and subscribe", "see you next time",
             "goodbye", "bye bye", "thanks for watching", "i hope you enjoyed",
             "don't forget to subscribe", "hit the like button",
-            "thanks for listening", "music", "applause", "subtitle",
+            "thanks for listening", "applause", "subtitle",
             "subtitles by", "transcribed by", "translated by"
         ]
         
@@ -394,12 +394,3 @@ class AudioInput:
                 await self.text_queue.put(text)
             
             self.transcription_queue.task_done()
-
-# Installation instructions:
-"""
-Install Faster-Whisper:
-pip install faster-whisper
-
-Optional (for speed):
-pip install ctranslate2>=4.0.0
-"""
