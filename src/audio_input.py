@@ -61,18 +61,18 @@ class AudioInput:
         # Initialize Faster-Whisper
         # We use a tiny model for quick wake-word detection and a small model for accurate transcription.
         
-        print("  - Loading 'tiny.en' model for wake word detection...")
+        print("  - Loading 'base.en' model for wake word detection...")
         self.wake_word_model = WhisperModel(
-            "tiny.en",
+            "base.en",
             device="cpu",
             compute_type="int8",  # Quantized for CPU efficiency
             num_workers=2,
             cpu_threads=4
         )
         
-        print("  - Loading 'small.en' model for main transcription...")
+        print("  - Loading 'medium.en' model for main transcription...")
         self.stt_model = WhisperModel(
-            "small.en",
+            "medium.en",
             device="cpu",
             compute_type="int8",
             num_workers=2,

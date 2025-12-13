@@ -8,7 +8,7 @@ audio_settings:
   sample_rate: 16000
   threshold: 200
   barge_in_rms: 3000
-  barge_in_confidence: 0.8
+  barge_in_confidence: 0.7
 
 brain_settings:
   worker_llm: "llama-3.3-70b-versatile"
@@ -19,6 +19,5 @@ voice_settings:
 
 memory_settings:
   path: "memory_db"
-  n_results: 3
   embedding_model: "all-MiniLM-L6-v2"
   

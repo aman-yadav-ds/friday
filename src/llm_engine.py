@@ -83,7 +83,7 @@ class LLMEngine:
         
         # Base System Prompt
         self.base_system_message = (
-            "You are a voice AI Agent named Friday. You are helpful, witty, and concise. "
+            f"You are a voice AI Agent named {self.config["audio_settings"].get("wake_word", "Emma")}. You are helpful, witty, and concise. "
             "Your responses are spoken out loud, so keep them short and conversational."
         )
 
@@ -195,8 +195,8 @@ class LLMEngine:
                 "Should I retrieve past memories/context for this user query? "
                 "Respond ONLY with 'YES' or 'NO'.\n"
                 "Guidelines:\n"
-                "- Music/Media Commands (e.g. 'Play X', 'Stop', 'Volume') -> NO (Self-contained).\n"
-                "- Questions/Chat/Facts (e.g. 'Who is X?', 'What did I say?', 'I like Y') -> YES (Needs context).\n"
+                "- Music/Media Commands (e.g. 'Play X', 'Stop',) -> NO (Self-contained).\n"
+                "- Questions/Chat/Facts (e.g. 'Try to retrieve/recall our chat', 'What did I say?', 'What did I tell you to do?', 'What are my preferences?', 'Remember What I like?') -> YES (Needs context).\n"
             )),
             ("human", "{input}")
         ])
