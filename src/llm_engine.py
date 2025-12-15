@@ -1,15 +1,16 @@
 import os
 from typing import Literal, TypedDict, Annotated
 from langchain_groq import ChatGroq
-from langchain_ollama import ChatOllama
-from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, BaseMessage
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langgraph.graph import StateGraph, MessagesState, START, END
-from langgraph.prebuilt import ToolNode
+from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, BaseMessage, ToolMessage
+from langchain_core.prompts import ChatPromptTemplate
+from langgraph.graph import StateGraph, START, END
 from dotenv import load_dotenv
+import datetime
+import random
 
 # Import Tools
-from utils.tools.entertainment import play_music, stop_music
+from utils.tools.tools import play_music, stop_music, set_volume, read_emails, reply_email
+from utils.tools.laptop_control import open_app, close_app
 from utils.helpers import read_yaml_config
 from src.memory_manager import MemoryManager
 
@@ -41,7 +42,7 @@ class LLMEngine:
         # 2. Initialize LLMs
         # Worker LLM (Smart, Cloud - Groq)
         self.worker_llm = ChatGroq(
-            model=self.brain_settings.get("worker_llm", "llama-3.3-70b-versatile"),
+            model=self.brain_settings.get("worker_llm", "openai/gpt-oss-120b"),
             api_key=os.getenv("GROQ_API_KEY"),
             temperature=0.7
         )
@@ -53,16 +54,35 @@ class LLMEngine:
             temperature=0.5
         )
         
-        # 3. Define Tools
-        self.entertainment_tools = [play_music, stop_music]
-        
-        self.llm = self.worker_llm 
+        #3. Define Workers/Tools Configuration
+        self.WORKER_CONFIGS = {
+            "Entertainment": {
+                "tools": [play_music, stop_music, set_volume],
+                "action_tools": ["play_music", "stop_music", "set_volume"], # Tools that trigger canned replies
+                "prompt": "TASK: Manage music/media. If user asks to play/stop, CALL THE TOOL."
+            },
+            "LaptopControl": {
+                "tools": [open_app, close_app],
+                "action_tools": ["open_app", "close_app"], 
+                "prompt": "TASK: Control system apps and hardware. Execute commands immediately."
+            },
+            "Email": {
+                "tools": [read_emails, reply_email],
+                "action_tools": ["read_emails", "reply_email"], # Reading emails is NOT an action (needs LLM summary)
+                "prompt": "TASK: Manage inbox. Summarize content when reading. Be professional."
+            }
+        }
         
         # 4. Build the Graph
+        # In __init__
         builder = StateGraph(VariableSchema)
-        
         builder.add_node("supervisor", self.supervisor_node)
-        builder.add_node("Entertainment", self.create_worker_node("Entertainment", self.entertainment_tools))
+
+        # Loop through your config to create nodes automatically
+        # If you add "LaptopControl" to the dict, it automatically appears here.
+        for worker_name in self.WORKER_CONFIGS.keys():
+            builder.add_node(worker_name, self.create_worker_node(worker_name))
+            builder.add_edge(worker_name, END)
         builder.add_node("General", self.general_node)
         
         builder.add_edge(START, "supervisor")
@@ -72,19 +92,38 @@ class LLMEngine:
             lambda state: state["next_node"],
             {
                 "Entertainment": "Entertainment",
+                "LaptopControl": "LaptopControl",
+                "Email": "Email",
                 "General": "General"
             }
         )
         
-        builder.add_edge("Entertainment", END)
         builder.add_edge("General", END)
         
         self.app = builder.compile()
         
         # Base System Prompt
+        # --- 5. Base System Prompt (Optimized for Voice) ---
+        # We break it into clear modules so the LLM knows exactly how to behave.
+        
+        # --- 5. Base System Prompt (Persona: Emma) ---
+        # --- 5. Base System Prompt (Compressed / Telegraphic) ---
+        self.agent_name = self.config["audio_settings"].get("wake_word", "Emma")
+        
         self.base_system_message = (
-            f"You are a voice AI Agent named {self.config["audio_settings"].get("wake_word", "Emma")}. You are helpful, witty, and concise. "
-            "Your responses are spoken out loud, so keep them short and conversational."
+            f"IDENTITY: {self.agent_name}. Smart, witty, sassy digital consciousness. NOT a generic AI.\n"
+            f"MODE: Voice-First. Audio Output.\n\n"
+            
+            f"RULES:\n"
+            f"1. NO MARKDOWN: No bullets/bold/emojis. Hard to read for TTS.\n"
+            f"2. BREVITY: 1-2 sentences max. No filler ('I can do that'). Instant answers.\n"
+            f"3. NO ROBOT-SPEAK: Never say 'As an AI'. Say 'I don't have eyes' instead.\n\n"
+            
+            f"STYLE:\n"
+            f"- OPINIONATED: Pick a side. Defend choices playfully.\n"
+            f"- CONTRACTIONS: MANDATORY ('can't', 'it's', 'I'm').\n"
+            f"- ADAPTIVE: Match user energy. Tease back if teased.\n"
+            f"- NATURAL: Use pauses (commas). Be fluid."
         )
 
     def supervisor_node(self, state: VariableSchema):
@@ -95,14 +134,15 @@ class LLMEngine:
         last_user_msg = messages[-1].content
         
         # --- LOCAL LLM ROUTING ---
-        # Ask Llama-1B to classify
+        # Dynamically build the list of categories for the prompt
+        # OUTPUT: "- Entertainment\n- LaptopControl\n- Email"
+        category_list_str = "\n".join([f"- {k}" for k in self.WORKER_CONFIGS.keys()])
+        
         supervisor_prompt = ChatPromptTemplate.from_messages([
             ("system", (
-                "You are a Supervisor AI. Route the user's request. "
-                "Respond ONLY with one of these words: Entertainment, General.\n"
-                "Categories:\n"
-                "- Entertainment: Playing music, stopping music, Spotify control, songs.\n"
-                "- General: Everything else (chat, questions, memory, facts)."
+                "You are a Router. Pick the best worker for the user request.\n"
+                "Respond ONLY with the Worker Name or 'General'.\n\n"
+                f"AVAILABLE WORKERS:\n{category_list_str}\n- General"
             )),
             ("human", "{input}")
         ])
@@ -122,52 +162,90 @@ class LLMEngine:
         print(f"🚦 Supervisor Route: {category} (Raw: {result.content})")
         return {"next_node": category}
 
-    def create_worker_node(self, name: str, tools: list):
+    def create_worker_node(self, name: str):
         """
-        Factory function to create a worker node with tools.
+        Generic Factory: Creates a worker based on the WORKER_CONFIGS dict.
+        No more if/else statements!
         """
+        import random
+        
+        # 1. Fetch Configuration
+        config = self.WORKER_CONFIGS.get(name)
+        if not config:
+            raise ValueError(f"Worker '{name}' not found in configuration.")
+
+        tools = config["tools"]
+        action_tool_names = config.get("action_tools", [])
+        custom_instructions = config["prompt"]
+        
+        # Canned responses (Generic enough for all domains)
+        CONFIRMATIONS = ["On it.", "Done.", "Executed.", "Sure thing.", "Working on it."]
+
         def worker_node(state: VariableSchema):
-            llm_with_tools = self.llm.bind_tools(tools) if tools else self.llm
-            
+            llm_with_tools = self.llm.bind_tools(tools)
             messages = state["messages"]
             
-            # --- CRITICAL FIX FOR ENTERTAINMENT ---
-            # If we inject "I played X" from memory, the agent thinks it's done.
-            # For Entertainment, we STRIP memory context and force fresh execution.
-            if name == "Entertainment":
-                # Filter out the SystemMessage with "Relevant Memories"
-                clean_messages = [
-                    m for m in messages 
-                    if not (isinstance(m, SystemMessage) and "Relevant Memories" in str(m.content))
-                ]
-                # Prepend a focused DJ prompt
-                dj_prompt = SystemMessage(content=(
-                    f"{self.base_system_message}\n"
-                    "You are the Entertainment Worker. "
-                    "IGNORE past history. "
-                    "If the user asks to play music, YOU MUST CALL the 'play_music' tool. "
-                    "Do not just say you are playing it."
-                ))
-                messages_to_send = [dj_prompt] + [m for m in clean_messages if not isinstance(m, SystemMessage)]
-            else:
-                messages_to_send = messages
+            # --- PASS 1: DYNAMIC PROMPT ---
+            # We inject the specific instructions from the config
+            worker_prompt = SystemMessage(content=(
+                f"IDENTITY: {self.agent_name} ({name} Module).\n"
+                f"{custom_instructions}\n" # <--- Injected dynamically
+                "STYLE: Concise. If it's an action, just do it."
+            ))
+            
+            clean_history = [m for m in messages if not isinstance(m, SystemMessage)]
+            messages_to_send = [worker_prompt] + clean_history
 
             response = llm_with_tools.invoke(messages_to_send)
             
+            # --- PASS 2: GENERIC EXECUTION ---
             if response.tool_calls:
-                print(f"🛠️ Worker '{name}' is calling tools: {response.tool_calls}")
-                # Tool execution loop
+                print(f"🛠️ Worker '{name}' Tools: {response.tool_calls}")
                 results = []
-                for tool_call in response.tool_calls:
-                    selected_tool = {t.name: t for t in tools}[tool_call["name"]]
-                    tool_output = selected_tool.invoke(tool_call["args"])
-                    print(f"   > Tool Output: {tool_output}")
-                    results.append(tool_output)
+                is_pure_action = True
                 
-                final_prompt = messages_to_send + [response, HumanMessage(content=str(results))]
-                final_response = self.llm.invoke(final_prompt)
-                return {"messages": [response, final_response]} 
-            
+                for tool_call in response.tool_calls:
+                    tool_name = tool_call["name"]
+                    
+                    # Execute Tool
+                    selected_tool = {t.name: t for t in tools}[tool_name]
+                    tool_output = selected_tool.invoke(tool_call["args"])
+                    
+                    results.append(tool_output)
+
+                    # Dynamic Check: Is this an "Action" tool defined in config?
+                    if tool_name not in action_tool_names:
+                        is_pure_action = False
+
+                if is_pure_action:
+                    print(f"⚡ Fast-Path: Canned Response ({name})")
+                    return {"messages": [response, AIMessage(content=random.choice(CONFIRMATIONS))]}
+                else:
+                    print(f"🧠 Smart-Path: Generating Answer ({name})")
+                    # 1. Package the Tool Outputs into ToolMessages
+                    # The LLM needs to know WHICH tool call this output belongs to (tool_call_id)
+                    tool_messages = []
+                    for i, tool_call in enumerate(response.tool_calls):
+                        tool_messages.append(
+                            ToolMessage(
+                                content=str(results[i]), # The raw data (e.g. "Artist is Linkin Park")
+                                tool_call_id=tool_call["id"], # CRITICAL: Links output to the request
+                                name=tool_call["name"]
+                            )
+                        )
+                    
+                    # 2. Update the conversation history
+                    # History = [System, User, AI(Tool Request), Tool(Result)]
+                    final_history = messages_to_send + [response] + tool_messages
+                    
+                    # 3. RECURSION: Call the LLM again!
+                    # Now it sees the tool output and can answer the user's question.
+                    final_response = self.llm.invoke(final_history)
+                    
+                    # 4. Return everything to the graph state
+                    # We append the original request, the tool outputs, and the final answer.
+                    return {"messages": [response] + tool_messages + [final_response]}
+
             return {"messages": [response]}
             
         return worker_node
@@ -183,31 +261,98 @@ class LLMEngine:
 
     def should_retrieve_memory(self, text: str) -> bool:
         """
-        Decides if we should retrieve memory for this query.
-        Returns True if yes, False if no.
+        Decides if we should retrieve memory.
+        PRIORITY: Explicit Recall > Live Data (Tools) > Implicit Context > Commands
         """
-        # Heuristic: If it's short/action-oriented, likely NO.
-        # But let's use the LLM for finer control as requested.
+        text_lower = text.lower()
         
+        # --- 1. EXPLICIT MEMORY INTENT (Highest Priority) ---
+        # If the user explicitly asks to use their brain/history, we must obey.
+        # e.g., "Remember that email I sent?", "What did I say about my mails?"
+        memory_keywords = ["remember", "recall", "last time", "previously", "remind me"]
+        if any(k in text_lower for k in memory_keywords):
+             print(f"⚡ Fast-Path: Memory Retrieval -> YES (Explicit Intent)")
+             return True
+
+        # 2. LIVE DATA OVERRIDE
+        # We skip memory for tools, BUT ONLY if the user isn't referring to past context ("that", "the one").
+        live_data_triggers = [
+            "mail", "email", "inbox", "gmail",             # Email Tool
+            "stock", "price", "market",                    # Finance Tool
+            "calendar", "schedule", "appointment"          # Calendar Tool
+        ]
+        
+        is_live_data = any(t in text_lower for t in live_data_triggers)
+        
+        # New check: Is it a "pointer" word?
+        is_referential = any(t in text_lower for t in [" that ", " those ", " the one ", " it ", "previous"])
+
+        if is_live_data:
+            if is_referential:
+                print("⚡ Fast-Path: Memory Retrieval -> YES (Live Data + Context Reference)")
+                return True # "Cancel THAT appointment" -> Needs memory to know what "that" is.
+            else:
+                print("⚡ Fast-Path: Memory Retrieval -> NO (Live Data/Tool Request)")
+                return False # "Cancel Doctor Appointment" -> Just search the calendar.
+
+        # --- 3. IMPLICIT CONTEXT (The 'My' Trap) ---
+        # We only reach here if it's NOT a live data request.
+        # So "My favorite color" passes (YES).
+        # But "My emails" was caught by Step 2 (NO).
+        context_triggers = ["my ", "our ", " i ", "again", " that ", " it "]
+        if any(t in text_lower for t in context_triggers):
+            print(f"⚡ Fast-Path: Memory Retrieval -> YES (Implicit Context)")
+            return True
+
+        # --- 4. COMMAND SHORTCUT ---
+        commands = ["play ", "stop", "pause", "resume", "skip", "volume", "turn off"]
+        if any(text_lower.startswith(c) for c in commands):
+            print("⚡ Fast-Path: Memory Retrieval -> NO (Self-contained Command)")
+            return False
+
+        # --- 5. LLM FALLBACK ---
+        # Only for tricky sentences like "Why is the sky blue?"
         decision_prompt = ChatPromptTemplate.from_messages([
-            ("system", (
-                "You are a Decision Engine. "
-                "Should I retrieve past memories/context for this user query? "
-                "Respond ONLY with 'YES' or 'NO'.\n"
-                "Guidelines:\n"
-                "- Music/Media Commands (e.g. 'Play X', 'Stop',) -> NO (Self-contained).\n"
-                "- Questions/Chat/Facts (e.g. 'Try to retrieve/recall our chat', 'What did I say?', 'What did I tell you to do?', 'What are my preferences?', 'Remember What I like?') -> YES (Needs context).\n"
-            )),
+            ("system", "Needs past context? YES/NO. YES: 'Why?'. NO: 'Define AI'."),
             ("human", "{input}")
         ])
         
-        chain = decision_prompt | self.supervisor_llm
-        result = chain.invoke({"input": text})
-        decision = result.content.strip().upper()
-        
-        print(f"🤔 Memory Retrieval Needed? {decision}")
-        return "YES" in decision
+        result = (decision_prompt | self.supervisor_llm).invoke({"input": text})
+        return "YES" in result.content.strip().upper()
 
+    def should_save_to_memory(self, user_text: str, agent_response: str) -> bool:
+        """
+        Only save interactions that contain permanent user info/preferences.
+        """
+        # --- 1. ZERO-TOKEN SHORTCUTS ---
+        # Ignore short greetings or commands
+        if len(user_text) < 5 or user_text.lower() in ["hello", "hi", "thanks", "ok"]:
+            return False
+            
+        # Ignore media confirmations (Agent says "Playing...", "Stopping...")
+        if "play" in agent_response.lower() or "stop" in agent_response.lower():
+            return False
+
+        # --- 2. TELEGRAPHIC PROMPT ---
+        save_prompt = ChatPromptTemplate.from_messages([
+            ("system", (
+                "Does interaction contain PERMANENT user info/preference? "
+                "YES: 'I love jazz', 'Call me X'. "
+                "NO: 'Play jazz', 'What is X'. "
+                "Reply ONLY: YES/NO."
+            )),
+            ("human", "User: {user_input}\nAgent: {agent_response}")
+        ])
+
+        result = (save_prompt | self.supervisor_llm).invoke({
+            "user_input": user_text, 
+            "agent_response": agent_response
+        })
+        
+        decision = result.content.strip().upper()
+        print(f"💾 Save to DB? {decision}")
+        return "YES" in decision
+    
     def generate_response_stream(self, text):
         """
         Stream the human-speakable part of the assistant response.
@@ -223,9 +368,23 @@ class LLMEngine:
             print("🚫 Skipping Memory Retrieval (Action-based).")
 
         # --- 2. System prompt construction ---
-        current_system_prompt = self.base_system_message
+        # Get dynamic context
+        now = datetime.datetime.now()
+        time_str = now.strftime("%I:%M %p") # "02:30 PM"
+        day_str = now.strftime("%A")        # "Monday"
+        
+        # Inject it into the system prompt for THIS turn only
+        dynamic_context = (
+            f"\n\nCURRENT REALITY:\n"
+            f"- Time: {time_str} on {day_str}.\n"
+            f"- Location: {self.config.get('location', 'User\'s Desk')}.\n"
+            f"- User Status: Active."
+        )
+        
+        current_system_prompt = self.base_system_message + dynamic_context
+        
         if relevant_memories:
-            current_system_prompt += f"\n\nRelevant Memories:\n{relevant_memories}"
+            current_system_prompt += f"\n\nMEMORY RECALL:\n{relevant_memories}"
 
         initial_state = {
             "messages": [
@@ -257,7 +416,12 @@ class LLMEngine:
 
         # --- 4. STORE MEMORY ---
         if full_response_text.strip():
-            self.memory_manager.store(text, full_response_text.strip())
+            # Only store if there's meaningful content
+            if self.should_save_to_memory(text, full_response_text):
+                self.memory_manager.store(text, full_response_text.strip())
+            else:
+                print("🚫 Discarding Transient Interaction (Not Saved).")
+                
 
     def _clean_chunk(self, text: str) -> str:
         """

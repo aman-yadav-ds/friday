@@ -134,6 +134,18 @@ class SpotifyTool:
             return "Playback stopped."
         except Exception as e:
             return f"An error occured while trying to stop playback: {str(e)}"
+        
+    def set_volume(self, level: int):
+        """
+        Adjust the volume on Spotify to a specified level (0-100).
+        """
+        try:
+            if level < 0 or level > 100:
+                return "Error: Volume level must be between 0 and 100."
+            self.sp.volume(level)
+            return f"Volume set to {level}%."
+        except Exception as e:
+            return f"An error occured while trying to set volume: {str(e)}"
 
 if __name__ == "__main__":
     try:

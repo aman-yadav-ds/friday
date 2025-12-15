@@ -349,8 +349,8 @@ class AudioInput:
         # The usual suspects
         hallucinations = [
             "thank you", "thanks", "thank you for watching", "watching",
-            "please subscribe", "like and subscribe", "subtitles by",
-            "copyright", "all rights reserved"
+            # "please subscribe", "like and subscribe", "subtitles by",
+            # "copyright", "all rights reserved"
         ]
         
         # Exact match check
