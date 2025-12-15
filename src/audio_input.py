@@ -3,7 +3,11 @@ import queue
 import numpy as np
 import pyaudio
 import torch
+import sys
 import time
+import io
+import scipy.io.wavfile as wavfile
+from groq import Groq
 from faster_whisper import WhisperModel
 from dotenv import load_dotenv
 from utils.helpers import read_yaml_config
@@ -28,6 +32,11 @@ class AudioInput:
         # The "Raw Feed". Raw audio bytes from the mic are dumped here.
         self.audio_queue = queue.Queue()
         
+        # --- Groq Model Setup (for future use) ---
+        self.groq_client = Groq()
+        self.GROQ_MODEL = "whisper-large-v3-turbo"
+        print(f"Connected to Groq Cloud {self.GROQ_MODEL}")
+
         # --- Wake Word Configuration ---
         self.wake_word = self.audio_settings.get("wake_word", "emma").lower()
         self.wake_word_enabled = wake_word_enabled
@@ -48,12 +57,13 @@ class AudioInput:
         
         # --- Voice Activity Detection (VAD) Thresholds ---
         # RMS (Root Mean Square) = Volume.
-        self.RMS_THRESHOLD = self.audio_settings.get("threshold", 200)      # Noise floor. Ignore anything quieter than this.
+        self.RMS_THRESHOLD = self.audio_settings.get("threshold", 400)      # Noise floor. Ignore anything quieter than this.
         self.BARGE_IN_RMS = self.audio_settings.get("barge_in_rms", 3000)      # Interruption threshold. Yell louder than this to stop the bot.
         self.BARGE_IN_CONFIDENCE = self.audio_settings.get("barge_in_confidence", 0.8) # VAD confidence required to interrupt.
         
         # State flag: Are we currently outputting audio?
         self.is_speaking = False
+        self.STREAMING_INTERVAL = 1.0
         
         # --- Model Initialization ---
         print("🎧 Initializing Audio Subsystems...")
@@ -66,15 +76,6 @@ class AudioInput:
             "base.en",
             device="cpu",
             compute_type="int8",  # Quantized for CPU efficiency
-            num_workers=2,
-            cpu_threads=4
-        )
-        
-        print("  - Loading 'medium.en' model for main transcription...")
-        self.stt_model = WhisperModel(
-            "medium.en",
-            device="cpu",
-            compute_type="int8",
             num_workers=2,
             cpu_threads=4
         )
@@ -94,6 +95,41 @@ class AudioInput:
             self.wake_word_buffer = []
             # Calculate max chunks for the rolling buffer
             self.max_wake_buffer_chunks = int(self.wake_word_buffer_size * (self.RATE / self.CHUNKS))
+
+    def _create_wave_file(self, audio_float32):
+        """
+        Converts raw numpy float32 audio data into a WAV file object in memory.
+        Groq API requires a file-like object with a filename.
+        """
+        # Convert back to int16 for WAV Standard
+        audio_int16 = (audio_float32 * 32768).astype(np.int16)
+
+        buffer = io.BytesIO()
+        wavfile.write(buffer, self.RATE, audio_int16)
+        buffer.seek(0)
+
+        return ("audio.wav", buffer.read(), "audio/wav")
+    
+    # --- Helper: Groq Transcription ---
+    async def _transcribe_with_groq(self, audio_float32, prompt=""):
+        """Sends audio to Groq and returns text."""
+        try: 
+            wav_file = self._create_wave_file(audio_float32)
+
+            # Run blocking API call in a thread to keep the loop async
+            transcription_result = await asyncio.to_thread(
+                self.groq_client.audio.transcriptions.create,
+                file=wav_file,
+                model=self.GROQ_MODEL,
+                prompt=prompt,
+                language="en",
+                temperature=0.0
+            )
+
+            return transcription_result.text.strip()
+        except Exception as e:
+            print(f"⚠️ Groq transcription failed: {e}")
+            return ""
 
     def mic_callback(self, in_data, frame_count, time_info, status):
         """
@@ -264,7 +300,7 @@ class AudioInput:
             
             # 2. Start Recording
             elif not is_recording:
-                if (voice_confidence > 0.5) and (rms > self.RMS_THRESHOLD):
+                if (voice_confidence > 0.65) and (rms > self.RMS_THRESHOLD):
                     print(f"\n🗣️ Speech detected...")
                     is_recording = True
                     recording_start_time = time.time()
@@ -283,7 +319,7 @@ class AudioInput:
                 
                 # End of Turn
                 # Grace Period: Don't cut off due to silence if we just started recording (e.g. < 2.0s)
-                # This allows for a pause between "Friday" and the command.
+                # This allows for a pause between "Emma" and the command.
                 if silence_counter > silence_limit:
                     if (time.time() - recording_start_time > 2.0):
                         print("🔇 Silence detected. Processing turn.")
@@ -302,47 +338,30 @@ class AudioInput:
         audio_float32 = audio_int16.astype(np.float32) / 32768.0
         await self.transcription_queue.put((audio_float32, is_final))
 
-    def detect_hallucination(self, text, audio_duration):
-        """
-        The BS Detector. 🕵️‍♂️
-        Filters out common Whisper hallucinations like "Thank you for watching".
-        """
+    # --- HALLUCINATION DETECTOR ---
+    def detect_hallucination(self, text):
+        """Returns True if the text looks like a Whisper hallucination."""
         if not text:
             return True
         
         text_lower = text.lower().strip()
         
-        # The Hall of Shame
-        hallucination_phrases = [
-            "thank you", "thanks", "thank you for watching",
-            "please subscribe", "like and subscribe", "see you next time",
-            "goodbye", "bye bye", "thanks for watching", "i hope you enjoyed",
-            "don't forget to subscribe", "hit the like button",
-            "thanks for listening", "applause", "subtitle",
-            "subtitles by", "transcribed by", "translated by"
+        # The usual suspects
+        hallucinations = [
+            "thank you", "thanks", "thank you for watching", "watching",
+            "please subscribe", "like and subscribe", "subtitles by",
+            "copyright", "all rights reserved"
         ]
         
-        if text_lower in hallucination_phrases:
+        # Exact match check
+        if text_lower in hallucinations:
             return True
-        
-        for phrase in hallucination_phrases:
-            if text_lower.startswith(phrase):
+            
+        # Start of sentence check (e.g. "Thank you for listening...")
+        for h in hallucinations:
+            if text_lower.startswith(h):
                 return True
-        
-        # Repetition Check
-        words = text_lower.split()
-        if len(words) > 3:
-            half = len(words) // 2
-            if words[:half] == words[half:2*half]:
-                return True
-        
-        # Speed Check (Words per Second)
-        if audio_duration > 0:
-            words_per_second = len(words) / audio_duration
-            if words_per_second > 5:
-                print(f"⚠️ Suspicious speech rate: {words_per_second:.1f} wps")
-                return True
-        
+                
         return False
 
     async def transcription_loop(self):
@@ -351,46 +370,54 @@ class AudioInput:
         Consumes raw audio and produces text.
         """
         while True:
-            audio_data, is_final = await self.transcription_queue.get()
-            
-            if not is_final:
-                self.transcription_queue.task_done()
-                continue
-                
-            print(f"👂 Transcribing...")
-            audio_duration = len(audio_data) / self.RATE
+            audio_float32, is_final = await self.transcription_queue.get()
             
             try:
-                segments, _ = self.stt_model.transcribe(
-                    audio_data,
-                    beam_size=1,
-                    language="en",
-                    vad_filter=True,
-                    vad_parameters=dict(
-                        threshold=0.6,
-                        min_speech_duration_ms=250,
-                        min_silence_duration_ms=1000
-                    ),
-                    condition_on_previous_text=False,
-                    without_timestamps=False,
-                    temperature=0.0,
-                    compression_ratio_threshold=2.4,
-                    no_speech_threshold=0.6
-                )
+                local_text = ""
+
+                # CASE 1: Streaming Preview (Use Local base model)
+                # We use Local here because it's instant, free and we don't care about accuracy.
+                # Calling Groq for every chunk would be slow and costly.
+                if not is_final:
+                    segments, _ = self.wake_word_model.transcribe(
+                        audio_float32,
+                        beam_size=1,
+                        language="en",
+                        vad_filter=True,
+                        vad_parameters=dict(
+                            threshold= 0.6,
+                            min_speech_duration_ms= 300,
+                            min_silence_duration_ms= 1000
+                        ),
+                        temperature=0.0,
+                    )
+                    local_text = " ".join([segment.text.strip() for segment in segments])
+
+                    if local_text:
+                        sys.stdout.write(f"\r👂 Hearing: {local_text}...")
+                        sys.stdout.flush()
                 
-                text = " ".join([segment.text.strip() for segment in segments])
-                
+                # CASE 2: Final Transcription (Use Groq for accuracy)
+                # When we stop speaking, we send the full audio to Groq for a high-quality transcription.
+                else:
+                    sys.stdout.write(f"\r")
+
+                    # If local model says it's empty or hallucination, we Do NOT send to Groq.
+                    if self.detect_hallucination(local_text):
+                        print(f"🗑️ Discarded Noise/Hallucination: '{local_text}'")
+                    else:
+                        print(f"🚀 Valid Speech Detected: ('{local_text}'. Sending to Groq...")
+
+                        groq_text = await self._transcribe_with_groq(audio_float32)
+
+                        # Simple Hallucination Check
+                        if not self.detect_hallucination(groq_text):
+                            print(f"Final (Groq): {groq_text}")
+                            await self.text_queue.put(groq_text)
+                        else:
+                            print(f"⚠️ Groq Hallucinated: '{groq_text}'")
+
             except Exception as e:
                 print(f"⚠️ Transcription failed: {e}")
-                text = ""
-
-            # Hallucination Check
-            if text and self.detect_hallucination(text, audio_duration):
-                print(f"⚠️ Hallucination filtered: '{text}'")
-                text = ""
-
-            if text:
-                print(f"📝 Transcript: {text}")
-                await self.text_queue.put(text)
             
             self.transcription_queue.task_done()
