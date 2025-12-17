@@ -7,6 +7,7 @@ from langgraph.graph import StateGraph, START, END
 from dotenv import load_dotenv
 import datetime
 import random
+import re
 
 # Import Tools
 from utils.tools.tools import play_music, stop_music, set_volume, read_emails, reply_email
@@ -127,15 +128,10 @@ class LLMEngine:
         )
 
     def supervisor_node(self, state: VariableSchema):
-        """
-        Routes between Entertainment and General using Llama-3.2-1B.
-        """
         messages = state["messages"]
         last_user_msg = messages[-1].content
         
-        # --- LOCAL LLM ROUTING ---
-        # Dynamically build the list of categories for the prompt
-        # OUTPUT: "- Entertainment\n- LaptopControl\n- Email"
+        # 1. Generate Category List Dynamically
         category_list_str = "\n".join([f"- {k}" for k in self.WORKER_CONFIGS.keys()])
         
         supervisor_prompt = ChatPromptTemplate.from_messages([
@@ -150,14 +146,18 @@ class LLMEngine:
         chain = supervisor_prompt | self.supervisor_llm
         result = chain.invoke({"input": last_user_msg})
         
-        # Clean the output
-        category = result.content.strip().replace("'", "").replace('"', "").replace(".", "")
+        # --- THE FIX STARTS HERE ---
+        raw_output = result.content.strip().replace("'", "").replace('"', "").replace(".", "")
+        category = "General" # Default fallback
         
-        # Fuzzy matching just in case the small model chats a bit
-        if "entertainment" in category.lower(): 
-            category = "Entertainment"
-        else: 
-            category = "General"
+        # Check if the LLM output matches ANY of our worker keys (Case Insensitive)
+        for worker_key in self.WORKER_CONFIGS.keys():
+            if worker_key.lower() in raw_output.lower():
+                category = worker_key
+                break
+        
+        # Special Case: If it's not a worker, it stays "General"
+        # ---------------------------
             
         print(f"🚦 Supervisor Route: {category} (Raw: {result.content})")
         return {"next_node": category}
@@ -182,7 +182,7 @@ class LLMEngine:
         CONFIRMATIONS = ["On it.", "Done.", "Executed.", "Sure thing.", "Working on it."]
 
         def worker_node(state: VariableSchema):
-            llm_with_tools = self.llm.bind_tools(tools)
+            llm_with_tools = self.worker_llm.bind_tools(tools)
             messages = state["messages"]
             
             # --- PASS 1: DYNAMIC PROMPT ---
@@ -240,7 +240,7 @@ class LLMEngine:
                     
                     # 3. RECURSION: Call the LLM again!
                     # Now it sees the tool output and can answer the user's question.
-                    final_response = self.llm.invoke(final_history)
+                    final_response = self.worker_llm.invoke(final_history)
                     
                     # 4. Return everything to the graph state
                     # We append the original request, the tool outputs, and the final answer.
@@ -256,7 +256,7 @@ class LLMEngine:
         """
         # We don't need to do anything special; the state already has the system prompt with memory
         messages = state["messages"]
-        response = self.llm.invoke(messages)
+        response = self.worker_llm.invoke(messages)
         return {"messages": [response]}
 
     def should_retrieve_memory(self, text: str) -> bool:
@@ -399,16 +399,20 @@ class LLMEngine:
         # --- 3. STREAM RESPONSE ---
         for event in self.app.stream(initial_state):
             for node_name, values in event.items():
-                if "messages" not in values:
-                    continue
+                if "messages" not in values: continue
 
                 last_msg = values["messages"][-1]
-                if not isinstance(last_msg, AIMessage):
-                    continue
+                if not isinstance(last_msg, AIMessage): continue
 
                 chunk = last_msg.content or ""
+                
+                # --- DEBUG PRINT ---
+                # print(f"DEBUG RAW: [{chunk}]") 
+                
                 clean = self._clean_chunk(chunk)
+                
                 if not clean.strip():
+                    # print(f"DEBUG FILTERED OUT: [{chunk}]") # <--- Uncomment to see the silence cause
                     continue
 
                 full_response_text += clean + " "
@@ -425,31 +429,35 @@ class LLMEngine:
 
     def _clean_chunk(self, text: str) -> str:
         """
-        Remove emojis, tool-call messages, and system chatter.
-        Leaves only human-speakable content.
+        Robust Cleaner: Removes system noise but preserves the human content
+        even if the model hallucinates labels like 'Emma:' or 'AI:'.
         """
-        import re
+        
 
-        # Remove emojis and unicode symbols (private & pictographic ranges)
+        # 1. Remove Emojis (Visual noise)
         text = re.sub(r"[\U0001F600-\U0001FAFF]", "", text)
         text = re.sub(r"[\U0001F300-\U0001F5FF]", "", text)
         text = re.sub(r"[\U0001F900-\U0001F9FF]", "", text)
 
-        # Remove tool-calls
-        if text.strip().startswith("<tool") or text.strip().startswith("Tool Output"):
+        # 2. Remove Tool Tags (Functional noise)
+        if "<tool" in text or "</tool>" in text:
             return ""
 
-        # Remove supervisor/debug chatter
-        bad_prefixes = [
-            "🧠", "🤔", "🚫", "🚦", "🛠️", 
-            "Searching", "Tool Output", "Calling tool", 
-            "Worker", "Supervisor"
-        ]
-        for b in bad_prefixes:
-            if text.strip().startswith(b):
-                return ""
-
+        # 3. STRIP Prefixes (The Fix for the "Silence" Bug)
+        # Instead of returning "", we remove the label and keep the text.
+        # This covers: "Emma:", "AI:", "Worker:", "Response:", "System:"
+        text = re.sub(r"^(Emma|AI|Worker|Supervisor|System|Bot|Agent)(\s*:\s*)?", "", text.strip(), flags=re.IGNORECASE)
+        
         return text.strip()
+
+        # # 4. Filter Internal Thoughts (DeepSeek/Older model artifacts)
+        # # If line starts with "Thinking..." or "Calling...", drop it.
+        # bad_starts = ["Thinking", "Searching", "Calling", "Routing", "Executing", "Tool Output"]
+        # for b in bad_starts:
+        #     if text.strip().startswith(b):
+        #         return ""
+
+        # return text.strip()
 
 
 

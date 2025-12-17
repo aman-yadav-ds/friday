@@ -6,7 +6,7 @@ audio_settings:
   chunks: 512
   channels: 1
   sample_rate: 16000
-  threshold: 600
+  threshold: 400
   barge_in_rms: 3000
   barge_in_confidence: 0.7
 

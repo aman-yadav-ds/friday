@@ -342,7 +342,7 @@ class AudioInput:
     def detect_hallucination(self, text):
         """Returns True if the text looks like a Whisper hallucination."""
         if not text:
-            return True
+            return False
         
         text_lower = text.lower().strip()
         
