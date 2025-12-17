@@ -1,14 +1,23 @@
 audio_settings:
   wake_word: "Emma"
   wake_word_timeout: 30
-  wake_word_buffer_size: 3.0
-  wake_check_interval: 0.5
-  chunks: 512
-  channels: 1
+
+  # Audio stream
   sample_rate: 16000
-  threshold: 400
-  barge_in_rms: 3000
-  barge_in_confidence: 0.7
+  channels: 1
+  chunks: 512
+
+  # Wake word
+  wake_word_buffer_size: 2.5
+  wake_check_interval: 0.4
+
+  # Voice gating (CRITICAL)
+  threshold: 900              # <-- main fix
+  barge_in_rms: 3500
+  barge_in_confidence: 0.75
+
+  # VAD logic (implicit via silero)
+
 
 location: "Kichha, Uttarakhand"
 

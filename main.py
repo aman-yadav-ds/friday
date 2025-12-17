@@ -5,6 +5,10 @@ from src.audio_input import AudioInput
 from src.llm_engine import LLMEngine
 from src.audio_output import AudioOutput
 
+HIGH_CONFIDENCE = 0.75
+LOW_CONFIDENCE = 0.45
+
+
 async def main_loop():
     """
     The Big Boss. The Conductor. The Main Loop. 🎩
@@ -34,7 +38,9 @@ async def main_loop():
     
     while True:
         # 1. LISTEN: Wait for the Ear to hand us a complete thought.
-        user_text = await audio_input.text_queue.get()
+        payload = await audio_input.text_queue.get()
+        user_text = payload["text"]
+        confidence = payload["confidence"]
         print(f"👤 You said (Final): {user_text}")
 
         # Check for exit commands
@@ -44,8 +50,27 @@ async def main_loop():
             await audio_output.speak("Catch you on the flip side!", on_start_speaking)
             os._exit(0)
 
+
+        # --- CONFIDENCE POLICY ---
+        if confidence < LOW_CONFIDENCE:
+            print("🤔 Low confidence. Asking to repeat.")
+            await audio_output.speak(
+                "Sorry, I didn’t catch that. Can you say it again?",
+                on_start_speaking
+            )
+            audio_input.is_speaking = False
+            continue
+
+        elif confidence < HIGH_CONFIDENCE:
+            print("🤨 Medium confidence. Clarifying.")
+            user_text = f"(Unclear speech) {user_text}"
+
+
         # 2. THINK: Send it to the Brain and get a stream of thoughts back.
-        response_stream = llm_engine.generate_response_stream(user_text)
+        response_stream = llm_engine.generate_response_stream(
+            user_text,
+            confidence=confidence
+        )
         
         # 3. SPEAK: Pipe those thoughts directly to the Mouth.
         

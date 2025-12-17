@@ -1,4 +1,5 @@
 from src.memory_store import MemoryStore
+from src.memory_supervisor import MemorySupervisor
 
 class MemoryManager:
     """
@@ -7,17 +8,23 @@ class MemoryManager:
     """
     def __init__(self):
         self.store_db = MemoryStore()
+        self.supervisor = MemorySupervisor()
 
-    def store(self, user_msg: str, ai_msg: str):
+    def store(self, user_msg: str, ai_msg: str, confidence: float):
         """
         Saves the interaction to the memory store.
         Format: "User: [msg] | AI: [msg]"
         """
         # We save the pair so the context is preserved.
-        text_to_save = f"User: {user_msg}\nAI: {ai_msg}"
+        memory = self.supervisor.extract(user_msg, ai_msg, confidence)
+
+        if memory == "NONE":
+            print("🚫 No permanent memory extracted.")
+            return
+
         try:
-            self.store_db.add_memory(text_to_save)
-            print(f"💾 Memory saved.")
+            self.store_db.add_memory(memory)
+            print(f"💾 Memory saved: {memory}")
         except Exception as e:
             print(f"⚠️ Failed to save memory: {e}")
 

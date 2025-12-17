@@ -40,6 +40,8 @@ class LLMEngine:
         # 1. Initialize Memory Manager
         self.memory_manager = MemoryManager()
 
+        self.HIGH_CONFIDENCE = 0.75
+
         # 2. Initialize LLMs
         # Worker LLM (Smart, Cloud - Groq)
         self.worker_llm = ChatGroq(
@@ -320,40 +322,7 @@ class LLMEngine:
         result = (decision_prompt | self.supervisor_llm).invoke({"input": text})
         return "YES" in result.content.strip().upper()
 
-    def should_save_to_memory(self, user_text: str, agent_response: str) -> bool:
-        """
-        Only save interactions that contain permanent user info/preferences.
-        """
-        # --- 1. ZERO-TOKEN SHORTCUTS ---
-        # Ignore short greetings or commands
-        if len(user_text) < 5 or user_text.lower() in ["hello", "hi", "thanks", "ok"]:
-            return False
-            
-        # Ignore media confirmations (Agent says "Playing...", "Stopping...")
-        if "play" in agent_response.lower() or "stop" in agent_response.lower():
-            return False
-
-        # --- 2. TELEGRAPHIC PROMPT ---
-        save_prompt = ChatPromptTemplate.from_messages([
-            ("system", (
-                "Does interaction contain PERMANENT user info/preference? "
-                "YES: 'I love jazz', 'Call me X'. "
-                "NO: 'Play jazz', 'What is X'. "
-                "Reply ONLY: YES/NO."
-            )),
-            ("human", "User: {user_input}\nAgent: {agent_response}")
-        ])
-
-        result = (save_prompt | self.supervisor_llm).invoke({
-            "user_input": user_text, 
-            "agent_response": agent_response
-        })
-        
-        decision = result.content.strip().upper()
-        print(f"💾 Save to DB? {decision}")
-        return "YES" in decision
-    
-    def generate_response_stream(self, text):
+    def generate_response_stream(self, text, confidence: float = 1.0):
         """
         Stream the human-speakable part of the assistant response.
         Filters out tool messages, logs, emojis, and system noise.
@@ -383,6 +352,14 @@ class LLMEngine:
         
         current_system_prompt = self.base_system_message + dynamic_context
         
+        if confidence < self.HIGH_CONFIDENCE:
+            current_system_prompt += (
+                "\n\nINPUT QUALITY:\n"
+                "- Speech was unclear or partial.\n"
+                "- Ask for clarification if intent is ambiguous.\n"
+                "- Do NOT assume facts.\n"
+            )
+
         if relevant_memories:
             current_system_prompt += f"\n\nMEMORY RECALL:\n{relevant_memories}"
 
@@ -420,12 +397,7 @@ class LLMEngine:
 
         # --- 4. STORE MEMORY ---
         if full_response_text.strip():
-            # Only store if there's meaningful content
-            if self.should_save_to_memory(text, full_response_text):
-                self.memory_manager.store(text, full_response_text.strip())
-            else:
-                print("🚫 Discarding Transient Interaction (Not Saved).")
-                
+            self.memory_manager.store(text, full_response_text, confidence)
 
     def _clean_chunk(self, text: str) -> str:
         """
