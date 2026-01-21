@@ -4,7 +4,7 @@ import subprocess
 from langchain.tools import tool
 
 @tool
-def open_app(self, app_name: str) -> str:
+def open_app(app_name: str) -> str:
     """
     Open a laptop application by name.
     """
@@ -19,10 +19,10 @@ def open_app(self, app_name: str) -> str:
             return f"Error: Unsupported OS '{sys.platform}'"
         return f"Opened application: {app_name}"
     except Exception as e:
-        return f"An error occurred while trying to open the application: {str(e)}"
+        return f"An error occured: {str(e)}"
     
 @tool
-def close_app(self, app_name: str) -> str:
+def close_app(app_name: str) -> str:
     """
     Close a laptop application by name.
     """

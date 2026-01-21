@@ -8,7 +8,6 @@ from src.audio_output import AudioOutput
 HIGH_CONFIDENCE = 0.75
 LOW_CONFIDENCE = 0.45
 
-
 async def main_loop():
     """
     The Big Boss. The Conductor. The Main Loop. 🎩
@@ -16,6 +15,7 @@ async def main_loop():
     It's the puppet master pulling the strings.
     """
     print("✅ Agent is locked and loaded!")
+    MODE = "text"
     
     # The "Shut Up" Button
     # If this event is set, the Mouth stops talking immediately.
@@ -38,10 +38,15 @@ async def main_loop():
     
     while True:
         # 1. LISTEN: Wait for the Ear to hand us a complete thought.
-        payload = await audio_input.text_queue.get()
-        user_text = payload["text"]
-        confidence = payload["confidence"]
-        print(f"👤 You said (Final): {user_text}")
+        if MODE == "text":
+            user_text = str(input("Boss: "))
+            confidence = 0.99
+        else: 
+            payload = await audio_input.text_queue.get()
+            user_text = payload["text"]
+            confidence = payload["confidence"]
+
+        print(f"👤 Boss said (Final): {user_text}")
 
         # Check for exit commands
         # Because sometimes you just need some peace and quiet.
@@ -50,6 +55,10 @@ async def main_loop():
             await audio_output.speak("Catch you on the flip side!", on_start_speaking)
             os._exit(0)
 
+        if user_text.lower() == "voice":
+            MODE = "voice"
+        elif user_text.lower() == "text":
+            MODE = "text"
 
         # --- CONFIDENCE POLICY ---
         if confidence < LOW_CONFIDENCE:
@@ -84,7 +93,6 @@ async def main_loop():
         
         # Done talking? Cool, tell the Ear it's safe to listen again.
         audio_input.is_speaking = False
-
 if __name__ == "__main__":
     try:
         asyncio.run(main_loop())

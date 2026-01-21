@@ -6,7 +6,6 @@ from langchain_core.prompts import ChatPromptTemplate
 from langgraph.graph import StateGraph, START, END
 from dotenv import load_dotenv
 import datetime
-import random
 import re
 
 # Import Tools
@@ -18,7 +17,7 @@ from src.memory_manager import MemoryManager
 load_dotenv()
 
 # --- Configuration & Extensibility ---
-WorkerLiteral = Literal["Entertainment", "General"]
+WorkerLiteral = Literal["Entertainment", "LaptopControl", "Email", "General"]
 
 class VariableSchema(TypedDict):
     """Schema for our graph state."""
@@ -169,7 +168,6 @@ class LLMEngine:
         Generic Factory: Creates a worker based on the WORKER_CONFIGS dict.
         No more if/else statements!
         """
-        import random
         
         # 1. Fetch Configuration
         config = self.WORKER_CONFIGS.get(name)
@@ -177,11 +175,7 @@ class LLMEngine:
             raise ValueError(f"Worker '{name}' not found in configuration.")
 
         tools = config["tools"]
-        action_tool_names = config.get("action_tools", [])
         custom_instructions = config["prompt"]
-        
-        # Canned responses (Generic enough for all domains)
-        CONFIRMATIONS = ["On it.", "Done.", "Executed.", "Sure thing.", "Working on it."]
 
         def worker_node(state: VariableSchema):
             llm_with_tools = self.worker_llm.bind_tools(tools)
@@ -204,49 +198,45 @@ class LLMEngine:
             if response.tool_calls:
                 print(f"🛠️ Worker '{name}' Tools: {response.tool_calls}")
                 results = []
-                is_pure_action = True
                 
                 for tool_call in response.tool_calls:
                     tool_name = tool_call["name"]
                     
                     # Execute Tool
                     selected_tool = {t.name: t for t in tools}[tool_name]
-                    tool_output = selected_tool.invoke(tool_call["args"])
+                    try:
+                        tool_output = selected_tool.invoke(tool_call["args"])
+                    except Exception as e:
+                        tool_output = f"Tool '{tool_call['name']}' failed with error: {str(e)}"
+
                     
                     results.append(tool_output)
 
-                    # Dynamic Check: Is this an "Action" tool defined in config?
-                    if tool_name not in action_tool_names:
-                        is_pure_action = False
 
-                if is_pure_action:
-                    print(f"⚡ Fast-Path: Canned Response ({name})")
-                    return {"messages": [response, AIMessage(content=random.choice(CONFIRMATIONS))]}
-                else:
-                    print(f"🧠 Smart-Path: Generating Answer ({name})")
-                    # 1. Package the Tool Outputs into ToolMessages
-                    # The LLM needs to know WHICH tool call this output belongs to (tool_call_id)
-                    tool_messages = []
-                    for i, tool_call in enumerate(response.tool_calls):
-                        tool_messages.append(
-                            ToolMessage(
-                                content=str(results[i]), # The raw data (e.g. "Artist is Linkin Park")
-                                tool_call_id=tool_call["id"], # CRITICAL: Links output to the request
-                                name=tool_call["name"]
-                            )
+                print(f"🧠 Smart-Path: Generating Answer ({name})")
+                # 1. Package the Tool Outputs into ToolMessages
+                # The LLM needs to know WHICH tool call this output belongs to (tool_call_id)
+                tool_messages = []
+                for i, tool_call in enumerate(response.tool_calls):
+                    tool_messages.append(
+                        ToolMessage(
+                            content=str(results[i]), # The raw data (e.g. "Artist is Linkin Park")
+                            tool_call_id=tool_call["id"], # CRITICAL: Links output to the request
+                            name=tool_call["name"]
                         )
-                    
-                    # 2. Update the conversation history
-                    # History = [System, User, AI(Tool Request), Tool(Result)]
-                    final_history = messages_to_send + [response] + tool_messages
-                    
-                    # 3. RECURSION: Call the LLM again!
-                    # Now it sees the tool output and can answer the user's question.
-                    final_response = self.worker_llm.invoke(final_history)
-                    
-                    # 4. Return everything to the graph state
-                    # We append the original request, the tool outputs, and the final answer.
-                    return {"messages": [response] + tool_messages + [final_response]}
+                    )
+                
+                # 2. Update the conversation history
+                # History = [System, User, AI(Tool Request), Tool(Result)]
+                final_history = messages_to_send + [response] + tool_messages
+                
+                # 3. RECURSION: Call the LLM again!
+                # Now it sees the tool output and can answer the user's question.
+                final_response = llm_with_tools.invoke(final_history)
+                
+                # 4. Return everything to the graph state
+                # We append the original request, the tool outputs, and the final answer.
+                return {"messages": [response] + tool_messages + [final_response]}
 
             return {"messages": [response]}
             

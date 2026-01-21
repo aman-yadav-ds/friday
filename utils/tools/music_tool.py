@@ -21,7 +21,9 @@ class SpotifyTool:
         self.redirect_uri = redirect_uri or os.getenv("SPOTIFY_REDIRECT_URI")
 
         if not all([self.client_id, self.client_secret, self.redirect_uri]):
-            raise ValueError("Yo, where are the keys? Set SPOTIFY_CLIENT_ID and friends in .env")
+            self.sp = None
+            self.init_error = "Spotify credentials are missing."
+            return
         
         # Authenticate with the mothership
         self.sp = spotipy.Spotify(auth_manager=SpotifyOAuth(
@@ -79,6 +81,8 @@ class SpotifyTool:
         Finds a track and blasts it on whatever device is listening.
         Now with smarter search! 🧠
         """
+        if self.sp is None:
+            return "I couldn’t play music because Spotify credentials are not configured."
         try:
             # 1. Smarter Search Construction
             search_q = song_name
