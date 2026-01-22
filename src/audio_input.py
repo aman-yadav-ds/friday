@@ -73,9 +73,17 @@ class AudioInput:
         
         print("  - Loading 'base.en' model for wake word detection...")
         self.wake_word_model = WhisperModel(
+            "tiny.en",
+            device="cpu",
+            compute_type="int8",  # Quantized for CPU efficiency
+            num_workers=2,
+            cpu_threads=4
+        )
+        
+        self.transciption_model = WhisperModel(
             "base.en",
             device="cuda" if torch.cuda.is_available() else "cpu",
-            compute_type="int8",  # Quantized for CPU efficiency
+            compute_type="float16",
             num_workers=2,
             cpu_threads=4
         )
