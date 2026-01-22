@@ -7,7 +7,6 @@ import sys
 import time
 import io
 import scipy.io.wavfile as wavfile
-from groq import Groq
 from faster_whisper import WhisperModel
 from dotenv import load_dotenv
 from utils.helpers import read_yaml_config
@@ -31,11 +30,6 @@ class AudioInput:
         
         # The "Raw Feed". Raw audio bytes from the mic are dumped here.
         self.audio_queue = queue.Queue()
-        
-        # --- Groq Model Setup (for future use) ---
-        self.groq_client = Groq()
-        self.GROQ_MODEL = "whisper-large-v3-turbo"
-        print(f"Connected to Groq Cloud {self.GROQ_MODEL}")
 
         # --- Wake Word Configuration ---
         self.wake_word = self.audio_settings.get("wake_word", "emma").lower()
@@ -117,27 +111,6 @@ class AudioInput:
         buffer.seek(0)
 
         return ("audio.wav", buffer.read(), "audio/wav")
-    
-    # --- Helper: Groq Transcription ---
-    async def _transcribe_with_groq(self, audio_float32, prompt=""):
-        """Sends audio to Groq and returns text."""
-        try: 
-            wav_file = self._create_wave_file(audio_float32)
-
-            # Run blocking API call in a thread to keep the loop async
-            transcription_result = await asyncio.to_thread(
-                self.groq_client.audio.transcriptions.create,
-                file=wav_file,
-                model=self.GROQ_MODEL,
-                prompt=prompt,
-                language="en",
-                temperature=0.0
-            )
-
-            return transcription_result.text.strip()
-        except Exception as e:
-            print(f"⚠️ Groq transcription failed: {e}")
-            return ""
 
     def mic_callback(self, in_data, frame_count, time_info, status):
         """
@@ -424,7 +397,7 @@ class AudioInput:
         """
         The Scribe. ✍️
         - Preview STT: local, disposable
-        - Final STT: Groq, validated
+        - Final STT: local, validated
         - Emits (text, confidence)
         """
         while True:
@@ -458,19 +431,27 @@ class AudioInput:
                 sys.stdout.write("\r")
                 sys.stdout.flush()
 
-                groq_text = await self._transcribe_with_groq(audio_float32)
+                segments, _ = self.transciption_model.transcribe(
+                    audio_float32,
+                    beam_size=1,
+                    language="en",
+                    vad_filter=True,
+                    temperature=0.0
+                )
 
-                if self._is_garbage(groq_text, audio_seconds):
+                transcribed_text = " ".join(s.text.strip() for s in segments)
+
+                if self._is_garbage(transcribed_text, audio_seconds):
                     print("🗑️ Discarded low-quality speech")
                     continue
 
-                confidence = self._estimate_confidence(groq_text, audio_seconds)
+                confidence = self._estimate_confidence(transcribed_text, audio_seconds)
 
-                print(f"📝 Final: {groq_text} (conf={confidence:.2f})")
+                print(f"📝 Final: {transcribed_text} (conf={confidence:.2f})")
 
                 # IMPORTANT: queue text + confidence
                 await self.text_queue.put({
-                    "text": groq_text,
+                    "text": transcribed_text,
                     "confidence": confidence,
                     "duration": round(audio_seconds, 2)
                 })
