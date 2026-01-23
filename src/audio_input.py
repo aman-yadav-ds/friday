@@ -75,7 +75,7 @@ class AudioInput:
         )
         
         self.transciption_model = WhisperModel(
-            "base.en",
+            "small.en",
             device="cuda" if torch.cuda.is_available() else "cpu",
             compute_type="float16",
             num_workers=2,
