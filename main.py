@@ -46,19 +46,21 @@ async def main_loop():
             user_text = payload["text"]
             confidence = payload["confidence"]
 
-        print(f"👤 Boss said (Final): {user_text}")
+        if user_text.lower() == "voice":
+            MODE = "voice"
+            continue
+        elif user_text.lower() == "text":
+            MODE = "text"
+            continue
 
+        print(f"👤 Boss said (Final): {user_text}")
         # Check for exit commands
         # Because sometimes you just need some peace and quiet.
+
         exit_phrases = ["exit", "shutdown", "shut down"]
         if any(phrase in user_text.lower() for phrase in exit_phrases):
             await audio_output.speak("Catch you on the flip side!", on_start_speaking)
             os._exit(0)
-
-        if user_text.lower() == "voice":
-            MODE = "voice"
-        elif user_text.lower() == "text":
-            MODE = "text"
 
         # --- CONFIDENCE POLICY ---
         if confidence < LOW_CONFIDENCE:
@@ -73,7 +75,6 @@ async def main_loop():
         elif confidence < HIGH_CONFIDENCE:
             print("🤨 Medium confidence. Clarifying.")
             user_text = f"(Unclear speech) {user_text}"
-
 
         # 2. THINK: Send it to the Brain and get a stream of thoughts back.
         response_stream = llm_engine.generate_response_stream(
