@@ -1,5 +1,5 @@
 audio_settings:
-  wake_word: "Emma"
+  wake_word: "Edith"
   wake_word_timeout: 30
 
   # Audio stream
