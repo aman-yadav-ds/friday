@@ -10,13 +10,13 @@ class MemoryManager:
         self.store_db = MemoryStore()
         self.supervisor = MemorySupervisor()
 
-    def store(self, user_msg: str, ai_msg: str, confidence: float):
+    def store(self, user_msg: str, ai_msg: str):
         """
         Saves the interaction to the memory store.
         Format: "User: [msg] | AI: [msg]"
         """
         # We save the pair so the context is preserved.
-        memory = self.supervisor.extract(user_msg, ai_msg, confidence)
+        memory = self.supervisor.extract(user_msg, ai_msg)
 
         if memory == "NONE":
             print("🚫 No permanent memory extracted.")
