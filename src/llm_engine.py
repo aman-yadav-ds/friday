@@ -8,10 +8,10 @@ from langchain_groq import ChatGroq
 from langchain_core.messages import BaseMessage, ToolMessage, HumanMessage, SystemMessage
 from langgraph.graph.message import add_messages
 from langgraph.graph import StateGraph, START, END
+
+
 from src.memory_manager import MemoryManager
-
-
-
+from utils.helpers import read_yaml_config
 from utils.tools.os_tools import check_folder, create_file
 
 
@@ -42,7 +42,14 @@ def router(state: AgentState):
 
 # --- 2. The Brain ---
 class Brain:
-    def __init__(self, name="Edith"):
+    def __init__(self, config_path="config/brain_config.yaml"):
+        # --- Reading Config ---
+        self.config = read_yaml_config(config_path)
+        print(self.config)
+        if not self.config:
+            raise ValueError(f"Failed to load brain config from '{config_path}'")
+
+
         # --- Thinking Architecture ---
         # self.llm = ChatOllama(
         #     model = "qwen2.5-coder:7b",
@@ -50,8 +57,8 @@ class Brain:
         # )
 
         self.llm = ChatGroq(
-            model="llama-3.3-70b-versatile",
-            temperature=0.5
+            model=self.config["model"]["name"],
+            temperature=self.config["model"]["temperature"]
         )
 
         # --- Memory ---
@@ -114,7 +121,7 @@ class Brain:
 
         # 4. Build the System Prompt with the injected memories
         system_prompt = SystemMessage(content=(
-            f"You are Emma, a helpful and precise AI assistant.\n"
+            f"You are {self.config['name']}, a helpful and precise AI assistant.\n"
             f"You are running on a {current_os} operating system.\n"
             f"The user's true home directory is: {home_directory}\n"
             f"{memory_context}\n"
@@ -192,7 +199,7 @@ class Brain:
 
 if __name__ == "__main__":
     brain = Brain()
-    user_request = "Emma, what was in the study tool you created?"
+    user_request = "What is your name?"
     brain.brain_is_braining(user_request)
 
     
