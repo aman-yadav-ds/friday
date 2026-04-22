@@ -348,7 +348,6 @@ async def transcription_loop(self):
             # We hardcode confidence to 1.0 since we removed the complex math.
             await self.text_queue.put({
                 "text": transcribed_text,
-                "confidence": 1.0 
             })
 
             self.transcription_queue.task_done()

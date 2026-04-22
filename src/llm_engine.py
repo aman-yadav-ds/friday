@@ -14,7 +14,7 @@ from langgraph.checkpoint.memory import MemorySaver
 
 from src.memory_manager import MemoryManager
 from utils.helpers import read_yaml_config
-from utils.tools.os_tools import check_folder, create_file
+from utils.tools.os_tools import check_folder, create_file, execute_terminal
 
 
 load_dotenv()  # Load environment variables from .env file
@@ -68,9 +68,10 @@ class Brain:
 
         self.checkpointer = MemorySaver()
 
-        self.brain_with_tools = self.llm.bind_tools([check_folder, create_file])
+        tools = [check_folder, create_file, execute_terminal]
+        self.brain_with_tools = self.llm.bind_tools(tools)
 
-        self.tools_by_name = {tool.name: tool for tool in [check_folder, create_file]}
+        self.tools_by_name = {tool.name: tool for tool in tools}
 
         # --- The Board Game ---
         workflow = StateGraph(AgentState)
@@ -225,12 +226,16 @@ if __name__ == "__main__":
         
         # Turn 1
         print("\n--- Turn 1 ---")
-        async for chunk in brain.brain_is_braining("Check the document folder and tell me if you see a txt file there.", thread_id="test_1"):
+        async for chunk in brain.brain_is_braining("Edith, Go to the Desktop and create a folder named 'Calculator' inside it and if it is already there, just tell me.", thread_id="test_1"):
             print(chunk, end="", flush=True)
 
         # Turn 2 (Testing if she remembers Turn 1)
         print("\n--- Turn 2 ---")
-        async for chunk in brain.brain_is_braining("Is there a txt file there?", thread_id="test_1"):
+        async for chunk in brain.brain_is_braining("Now write a python script for a fully functional calculator named calculator.py inside this folder. and if it's already there, just tell me.", thread_id="test_1"):
             print(chunk, end="", flush=True)
 
+        
+        print("\n--- Turn 3 ---")
+        async for chunk in brain.brain_is_braining("Now i want you to run the calculator script for me to do some random calculations. and tell me the results.", thread_id="test_1"):
+            print(chunk, end="", flush=True)
     asyncio.run(test_memory())

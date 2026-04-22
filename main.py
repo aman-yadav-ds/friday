@@ -4,9 +4,6 @@ from src.audio_input import AudioInput
 from src.llm_engine import Brain
 from src.audio_output import AudioOutput
 
-HIGH_CONFIDENCE = 0.75
-LOW_CONFIDENCE = 0.45
-
 async def main_loop():
     """
     The Big Boss. The Conductor. The Main Loop. 🎩
@@ -39,11 +36,9 @@ async def main_loop():
         # 1. LISTEN: Wait for the Ear to hand us a complete thought.
         if MODE == "text":
             user_text = str(input("Boss: "))
-            confidence = 0.99
         else: 
             payload = await audio_input.text_queue.get()
             user_text = payload["text"]
-            confidence = payload["confidence"]
 
         if user_text.lower() == "voice":
             MODE = "voice"
@@ -60,20 +55,6 @@ async def main_loop():
         if any(phrase in user_text.lower() for phrase in exit_phrases):
             await audio_output.speak("Catch you on the flip side!", on_start_speaking)
             os._exit(0)
-
-        # --- CONFIDENCE POLICY ---
-        if confidence < LOW_CONFIDENCE:
-            print("🤔 Low confidence. Asking to repeat.")
-            await audio_output.speak(
-                "Sorry, I didn’t catch that. Can you say it again?",
-                on_start_speaking
-            )
-            audio_input.is_speaking = False
-            continue
-
-        elif confidence < HIGH_CONFIDENCE:
-            print("🤨 Medium confidence. Clarifying.")
-            user_text = f"(Unclear speech) {user_text}"
 
         # 2. THINK: Send it to the Brain and get a stream of thoughts back.
         response_stream = llm_engine.brain_is_braining(
