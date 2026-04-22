@@ -1,3 +1,4 @@
+import asyncio
 import os
 import platform
 from dotenv import load_dotenv
@@ -8,6 +9,7 @@ from langchain_groq import ChatGroq
 from langchain_core.messages import BaseMessage, ToolMessage, HumanMessage, SystemMessage
 from langgraph.graph.message import add_messages
 from langgraph.graph import StateGraph, START, END
+from langgraph.checkpoint.memory import MemorySaver
 
 
 from src.memory_manager import MemoryManager
@@ -29,7 +31,7 @@ def router(state: AgentState):
     If it asked for a tool, route to 'worker'.
     If it just talked, route to END.
     """
-    print(f"Router is checking the Manager's last message...")
+    print(f"\nRouter is checking the Manager's last message...")
     last_message = state["messages"][-1]
 
     if last_message.tool_calls:
@@ -64,6 +66,8 @@ class Brain:
         # --- Memory ---
         self.memory_manager = MemoryManager()
 
+        self.checkpointer = MemorySaver()
+
         self.brain_with_tools = self.llm.bind_tools([check_folder, create_file])
 
         self.tools_by_name = {tool.name: tool for tool in [check_folder, create_file]}
@@ -88,7 +92,7 @@ class Brain:
         # The Worker ALWAYS goes back to the Manager (The Loop!)
         workflow.add_edge("worker", "manager")
 
-        self.app = workflow.compile()
+        self.app = workflow.compile(checkpointer=self.checkpointer)
 
         print(f"Brain is ready to go!")
 
@@ -134,8 +138,8 @@ class Brain:
         ))
 
         history = state["messages"]
-
-        messages_to_send = [system_prompt] + history
+        trimmed_history = history[-10:]  # Keep only the last 10 messages for context to save tokens
+        messages_to_send = [system_prompt] + trimmed_history
 
         response = self.brain_with_tools.invoke(messages_to_send)
 
@@ -183,27 +187,50 @@ class Brain:
 
         return {"messages": tool_result}
     
-    def brain_is_braining(self, user_input: str):
+    async def brain_is_braining(self, user_input: str, thread_id: str = "boss_thread"):
+        """
+        Streams the AI response for the 'Mouth' while
+        accumulating the final answer to store in memory at the end.
+        """
         print(f"Starting Conversation...")
         # 1. We put the user's request into the backpack
         initial_backpack = {"messages": [HumanMessage(content=user_input)]}
+        # This config tell the checkpointer which memory to load
+        config = {"configurable": {"thread_id": thread_id}}
+        full_response_content = ""
 
-        # 2. We start the app and watch it stream through the boxes
-        final_backpack = self.app.invoke(initial_backpack)
+        # Use atream to get node updates
+        async for msg, metadata in self.app.astream(
+            initial_backpack,
+            config=config,
+            stream_mode="messages"
+        ):
+            # We only care about messages coming from the 'manager' node
+            # and we want to ignore tool calls (those shouldn't be spoken)
+            if metadata["langgraph_node"] == "manager" and not isinstance(msg, ToolMessage):
+                content = msg.content
+                if content:
+                    full_response_content += content
+                    yield content  # Stream the Manager's thoughts to the Mouth as they come in
 
-        final_answer = final_backpack["messages"][-1].content
-
-        print(f"\nFinal Answer:\n{final_answer}\n")
-
-        if final_answer.strip():
+        # After the stream is done, store the full response.
+        if full_response_content.strip():
+            print(f"Full response from Manager: {full_response_content}")
             print(f"Storing the user's request and the final answer in memory...")
-            self.memory_manager.store(user_input, final_answer)
-
+            self.memory_manager.store(user_input, full_response_content)
 
 if __name__ == "__main__":
-    brain = Brain()
-    user_request = "Edith, Now who am I?"
-    brain.brain_is_braining(user_request)
+    async def test_memory():
+        brain = Brain()
+        
+        # Turn 1
+        print("\n--- Turn 1 ---")
+        async for chunk in brain.brain_is_braining("Check the document folder and tell me if you see a txt file there.", thread_id="test_1"):
+            print(chunk, end="", flush=True)
 
-    
+        # Turn 2 (Testing if she remembers Turn 1)
+        print("\n--- Turn 2 ---")
+        async for chunk in brain.brain_is_braining("Is there a txt file there?", thread_id="test_1"):
+            print(chunk, end="", flush=True)
 
+    asyncio.run(test_memory())

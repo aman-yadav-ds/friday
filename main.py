@@ -1,8 +1,7 @@
-
 import asyncio
 import os
 from src.audio_input import AudioInput
-from src.llm_engine import LLMEngine
+from src.llm_engine import Brain
 from src.audio_output import AudioOutput
 
 HIGH_CONFIDENCE = 0.75
@@ -26,7 +25,7 @@ async def main_loop():
     audio_input = AudioInput(stop_speaking_event)
     
     # 2. The Brain: The smart part (hopefully). Talks to Gemini.
-    llm_engine = LLMEngine()
+    llm_engine = Brain()
     
     # 3. The Mouth: The loud part. Turns text into noise.
     audio_output = AudioOutput(stop_speaking_event)
@@ -77,9 +76,9 @@ async def main_loop():
             user_text = f"(Unclear speech) {user_text}"
 
         # 2. THINK: Send it to the Brain and get a stream of thoughts back.
-        response_stream = llm_engine.generate_response_stream(
+        response_stream = llm_engine.brain_is_braining(
             user_text,
-            confidence=confidence
+            thread_id="main_thread"
         )
         
         # 3. SPEAK: Pipe those thoughts directly to the Mouth.
