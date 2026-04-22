@@ -18,13 +18,6 @@ audio_settings:
 
   # VAD logic (implicit via silero)
 
-
-location: "Kichha, Uttarakhand"
-
-brain_settings:
-  worker_llm: "openai/gpt-oss-120b"
-  supervisor_llm: "llama-3.1-8b-instant"
-
 voice_settings:
   model: "./piper_voices/en_GB-cori-high.onnx"
   

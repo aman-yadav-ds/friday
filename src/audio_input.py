@@ -19,9 +19,10 @@ class AudioInput:
     Responsible for listening to the microphone, detecting voice activity (VAD),
     and transcribing speech to text using Faster-Whisper.
     """
-    def __init__(self, stop_event, wake_word_enabled=True, config_path="config/config.yaml"):
+    def __init__(self, stop_event, wake_word_enabled=True, config_path="config/audio_config.yaml"):
         self.config = read_yaml_config(config_path)
         self.audio_settings = self.config.get("audio_settings", {})
+        self.cuda_available = torch.cuda.is_available()
         # The "Kill Switch" event. If set, we stop any active output.
         self.stop_event = stop_event
         
@@ -32,7 +33,7 @@ class AudioInput:
         self.audio_queue = queue.Queue()
 
         # --- Wake Word Configuration ---
-        self.wake_word = self.audio_settings.get("wake_word", "emma").lower()
+        self.wake_word = self.audio_settings.get("wake_word", "Edith").lower()
         self.wake_word_enabled = wake_word_enabled
         self.is_awake = not wake_word_enabled  # If disabled, we're always listening.
         self.wake_word_timeout = self.audio_settings.get("wake_word_timeout", 30)  # Seconds of silence before we snooze.
@@ -52,32 +53,22 @@ class AudioInput:
         # --- Voice Activity Detection (VAD) Thresholds ---
         # RMS (Root Mean Square) = Volume.
         self.RMS_THRESHOLD = self.audio_settings.get("threshold", 400)      # Noise floor. Ignore anything quieter than this.
-        self.BARGE_IN_RMS = self.audio_settings.get("barge_in_rms", 3000)      # Interruption threshold. Yell louder than this to stop the bot.
+        self.BARGE_IN_RMS = self.audio_settings.get("barge_in_rms", 1800)      # Interruption threshold. Yell louder than this to stop the bot.
         self.BARGE_IN_CONFIDENCE = self.audio_settings.get("barge_in_confidence", 0.8) # VAD confidence required to interrupt.
         
         # State flag: Are we currently outputting audio?
         self.is_speaking = False
-        self.STREAMING_INTERVAL = 1.0
         
         # --- Model Initialization ---
         print("🎧 Initializing Audio Subsystems...")
         
         # Initialize Faster-Whisper
-        # We use a tiny model for quick wake-word detection and a small model for accurate transcription.
         
-        print("  - Loading 'base.en' model for wake word detection...")
-        self.wake_word_model = WhisperModel(
-            "tiny.en",
-            device="cpu",
-            compute_type="int8",  # Quantized for CPU efficiency
-            num_workers=2,
-            cpu_threads=4
-        )
-        
-        self.transciption_model = WhisperModel(
+        print("  - Loading 'small.en' Whisper model...")
+        self.transcription_model = WhisperModel(
             "small.en",
-            device="cuda" if torch.cuda.is_available() else "cpu",
-            compute_type="float16",
+            device="cpu" if self.cuda_available else "cpu",
+            compute_type="float16" if self.cuda_available else "int8",  # Quantized for CPU efficiency
             num_workers=2,
             cpu_threads=4
         )
@@ -112,7 +103,7 @@ class AudioInput:
 
         return ("audio.wav", buffer.read(), "audio/wav")
 
-    def mic_callback(self, in_data, frame_count, time_info, status):
+    def mic_callback(self, in_data):
         """
         PyAudio callback.
         This needs to be lightning fast. Grab the data, shove it in the queue, and get out.
@@ -127,17 +118,17 @@ class AudioInput:
         if self.wake_word_enabled:
             asyncio.create_task(self.wake_word_timeout_loop())
 
-    def _transcribe_wake_word(self, audio_float32):
+    def _transcribe_audio(self, audio_float32):
         """
         Blocking transcription call to be run in a thread.
         """
         try:
-            segments, _ = self.wake_word_model.transcribe(
+            segments, _ = self.transcription_model.transcribe(
                 audio_float32,
                 beam_size=1,
                 language="en",
-                vad_filter=False,
-                without_timestamps=True
+                vad_filter=True,
+                temperature=0.0
             )
             return " ".join([segment.text.lower().strip() for segment in segments])
         except Exception as e:
@@ -158,9 +149,9 @@ class AudioInput:
             audio_float32 = audio_int16.astype(np.float32) / 32768.0
             
             # Run transcription in a thread
-            text = await asyncio.to_thread(self._transcribe_wake_word, audio_float32)
+            text = await asyncio.to_thread(self._transcribe_audio, audio_float32)
             
-            if self.wake_word in text:
+            if self.wake_word in text.lower():
                 print(f"\n🎯 Wake word '{self.wake_word.capitalize()}' detected!")
                 return True
             
@@ -182,25 +173,14 @@ class AudioInput:
                 elapsed = time.time() - self.last_wake_time
                 if elapsed > self.wake_word_timeout:
                     self.is_awake = False
-                    print(f"\n😴 Timeout reached. Going to sleep.")
-                    print(f"   Say '{self.wake_word.capitalize()}' to wake me up.")
+                    print(f"\n😴 Timeout reached. Say '{self.wake_word.capitalize()}' to wake me up.")
 
-    def deserves_transcription(self, audio_buffer: list[bytes]) -> bool:
-        audio_data = b"".join(audio_buffer)
-        audio_int16 = np.frombuffer(audio_data, np.int16)
-
-        duration = len(audio_int16) / self.RATE
-        rms = np.sqrt(np.mean(audio_int16.astype(np.float32) ** 2))
-
-        # Hard rules
-        if duration < 0.5:
+    # --- SIMPLIFIED HALLUCINATION CHECK ---
+    def _is_valid_speech(self, text: str) -> bool:
+        """Fast, brutal filter for Whisper artifacts."""
+        text = text.strip()
+        if len(text) < 2:
             return False
-
-        if rms < self.RMS_THRESHOLD * 1.2:
-            return False
-
-        return True
-
 
     async def listen_loop(self):
         """
@@ -337,127 +317,38 @@ class AudioInput:
                     # else: inside grace period, ignore silence
 
     async def process_audio_input(self, audio_buffer, is_final=False):
-        """Prepares audio data for the transcription loop."""
         if not audio_buffer:
             return
         audio_data = b''.join(audio_buffer)
         audio_int16 = np.frombuffer(audio_data, np.int16)
         audio_float32 = audio_int16.astype(np.float32) / 32768.0
-        await self.transcription_queue.put((audio_float32, is_final))
-
-    # --- HALLUCINATION DETECTOR ---
-    def _estimate_confidence(self, text: str, audio_seconds: float) -> float:
-        """
-        Heuristic confidence score [0.0 – 1.0]
-        """
-        if not text.strip():
-            return 0.0
-
-        tokens = len(text.split())
-
-        # Unrealistic speech rate
-        tokens_per_sec = tokens / max(audio_seconds, 0.1)
-        if tokens_per_sec > 6:
-            return 0.2
-
-        # Very short audio, long sentence
-        if audio_seconds < 1.0 and tokens > 10:
-            return 0.3
-
-        # Whisper politeness hallucinations
-        if text.lower().startswith(("thank", "thanks")):
-            return 0.2
-
-        return 0.9 if tokens >= 2 else 0.5
+        await self.transcription_queue.put(audio_float32)
 
 
-    def _is_garbage(self, text: str, audio_seconds: float) -> bool:
-        """
-        Final hallucination / noise rejection.
-        """
-        if not text.strip():
-            return True
-
-        tokens = len(text.split())
-
-        if tokens == 1 and audio_seconds > 2.0:
-            return True
-
-        if tokens > 20 and audio_seconds < 2.0:
-            return True
-
-        tokens_per_sec = tokens / max(audio_seconds, 0.1)
-        if tokens_per_sec > 7:
-            return True
-
-        return False
-
-
-    async def transcription_loop(self):
-        """
-        The Scribe. ✍️
-        - Preview STT: local, disposable
-        - Final STT: local, validated
-        - Emits (text, confidence)
-        """
+async def transcription_loop(self):
+        """The Scribe. Lean and fast."""
         while True:
-            audio_float32, is_final = await self.transcription_queue.get()
+            audio_float32 = await self.transcription_queue.get()
+            sys.stdout.write("\r🤔 Processing speech...")
+            sys.stdout.flush()
 
-            try:
-                audio_seconds = len(audio_float32) / self.RATE
+            transcribed_text = await asyncio.to_thread(self._transcribe_audio, audio_float32)
 
-                # ---------------------------
-                # PREVIEW (UI ONLY)
-                # ---------------------------
-                if not is_final:
-                    segments, _ = self.wake_word_model.transcribe(
-                        audio_float32,
-                        beam_size=1,
-                        language="en",
-                        vad_filter=True,
-                        temperature=0.0
-                    )
+            sys.stdout.write("\r")
+            sys.stdout.flush()
 
-                    preview = " ".join(s.text.strip() for s in segments)
-                    if preview:
-                        sys.stdout.write(f"\r👂 Hearing: {preview}...")
-                        sys.stdout.flush()
-
-                    continue
-
-                # ---------------------------
-                # FINAL TRANSCRIPTION
-                # ---------------------------
-                sys.stdout.write("\r")
-                sys.stdout.flush()
-
-                segments, _ = self.transciption_model.transcribe(
-                    audio_float32,
-                    beam_size=1,
-                    language="en",
-                    vad_filter=True,
-                    temperature=0.0
-                )
-
-                transcribed_text = " ".join(s.text.strip() for s in segments)
-
-                if self._is_garbage(transcribed_text, audio_seconds):
-                    print("🗑️ Discarded low-quality speech")
-                    continue
-
-                confidence = self._estimate_confidence(transcribed_text, audio_seconds)
-
-                print(f"📝 Final: {transcribed_text} (conf={confidence:.2f})")
-
-                # IMPORTANT: queue text + confidence
-                await self.text_queue.put({
-                    "text": transcribed_text,
-                    "confidence": confidence,
-                    "duration": round(audio_seconds, 2)
-                })
-
-            except Exception as e:
-                print(f"⚠️ Transcription failed: {e}")
-
-            finally:
+            if not self._is_valid_speech(transcribed_text):
+                print("🗑️ Discarded noise/hallucination.")
                 self.transcription_queue.task_done()
+                continue
+
+            print(f"📝 Heard: {transcribed_text}")
+
+            # Push to the Brain queue. 
+            # We hardcode confidence to 1.0 since we removed the complex math.
+            await self.text_queue.put({
+                "text": transcribed_text,
+                "confidence": 1.0 
+            })
+
+            self.transcription_queue.task_done()
