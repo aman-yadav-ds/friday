@@ -391,6 +391,61 @@ wheels = [
 ]
 
 [[package]]
+name = "edith"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "chromadb" },
+    { name = "datasets" },
+    { name = "faster-whisper" },
+    { name = "langchain" },
+    { name = "langchain-groq" },
+    { name = "langchain-ollama" },
+    { name = "langgraph" },
+    { name = "numpy" },
+    { name = "piper-tts" },
+    { name = "protobuf" },
+    { name = "pyaudio" },
+    { name = "pydantic", extra = ["email"] },
+    { name = "pygame" },
+    { name = "python-dotenv" },
+    { name = "pyyaml" },
+    { name = "scipy" },
+    { name = "sentence-transformers" },
+    { name = "setuptools" },
+    { name = "soundfile" },
+    { name = "spotipy" },
+    { name = "torch" },
+    { name = "torchaudio" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "chromadb", specifier = ">=1.3.5" },
+    { name = "datasets", specifier = ">=4.4.1" },
+    { name = "faster-whisper", specifier = ">=1.2.1" },
+    { name = "langchain", specifier = ">=0.3.27" },
+    { name = "langchain-groq", specifier = ">=0.3.8" },
+    { name = "langchain-ollama", specifier = ">=0.3.10" },
+    { name = "langgraph", specifier = ">=1.0.1" },
+    { name = "numpy", specifier = ">=2.3.5" },
+    { name = "piper-tts", specifier = ">=1.3.0" },
+    { name = "protobuf", specifier = "<=4.25.3" },
+    { name = "pyaudio", specifier = ">=0.2.14" },
+    { name = "pydantic", extras = ["email"], specifier = ">=2.12.5" },
+    { name = "pygame", specifier = ">=2.6.1" },
+    { name = "python-dotenv", specifier = ">=1.2.1" },
+    { name = "pyyaml", specifier = ">=6.0.3" },
+    { name = "scipy", specifier = ">=1.16.3" },
+    { name = "sentence-transformers", specifier = ">=5.1.2" },
+    { name = "setuptools", specifier = "<80" },
+    { name = "soundfile", specifier = ">=0.13.1" },
+    { name = "spotipy", specifier = ">=2.25.2" },
+    { name = "torch", specifier = ">=2.6.0", index = "https://download.pytorch.org/whl/cu124" },
+    { name = "torchaudio", specifier = ">=2.6.0", index = "https://download.pytorch.org/whl/cu124" },
+]
+
+[[package]]
 name = "email-validator"
 version = "2.3.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1924,61 +1979,6 @@ wheels = [
 ]
 
 [[package]]
-name = "sign-language-translator"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "chromadb" },
-    { name = "datasets" },
-    { name = "faster-whisper" },
-    { name = "langchain" },
-    { name = "langchain-groq" },
-    { name = "langchain-ollama" },
-    { name = "langgraph" },
-    { name = "numpy" },
-    { name = "piper-tts" },
-    { name = "protobuf" },
-    { name = "pyaudio" },
-    { name = "pydantic", extra = ["email"] },
-    { name = "pygame" },
-    { name = "python-dotenv" },
-    { name = "pyyaml" },
-    { name = "scipy" },
-    { name = "sentence-transformers" },
-    { name = "setuptools" },
-    { name = "soundfile" },
-    { name = "spotipy" },
-    { name = "torch" },
-    { name = "torchaudio" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "chromadb", specifier = ">=1.3.5" },
-    { name = "datasets", specifier = ">=4.4.1" },
-    { name = "faster-whisper", specifier = ">=1.2.1" },
-    { name = "langchain", specifier = ">=0.3.27" },
-    { name = "langchain-groq", specifier = ">=0.3.8" },
-    { name = "langchain-ollama", specifier = ">=0.3.10" },
-    { name = "langgraph", specifier = ">=1.0.1" },
-    { name = "numpy", specifier = ">=2.3.5" },
-    { name = "piper-tts", specifier = ">=1.3.0" },
-    { name = "protobuf", specifier = "<=4.25.3" },
-    { name = "pyaudio", specifier = ">=0.2.14" },
-    { name = "pydantic", extras = ["email"], specifier = ">=2.12.5" },
-    { name = "pygame", specifier = ">=2.6.1" },
-    { name = "python-dotenv", specifier = ">=1.2.1" },
-    { name = "pyyaml", specifier = ">=6.0.3" },
-    { name = "scipy", specifier = ">=1.16.3" },
-    { name = "sentence-transformers", specifier = ">=5.1.2" },
-    { name = "setuptools", specifier = "<80" },
-    { name = "soundfile", specifier = ">=0.13.1" },
-    { name = "spotipy", specifier = ">=2.25.2" },
-    { name = "torch", specifier = ">=2.6.0", index = "https://download.pytorch.org/whl/cu124" },
-    { name = "torchaudio", specifier = ">=2.6.0", index = "https://download.pytorch.org/whl/cu124" },
-]
-
-[[package]]
 name = "six"
 version = "1.17.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2133,8 +2133,8 @@ dependencies = [
     { name = "typing-extensions" },
 ]
 wheels = [
-    { url = "https://download.pytorch.org/whl/cu124/torch-2.6.0%2Bcu124-cp312-cp312-linux_x86_64.whl", hash = "sha256:a393b506844035c0dac2f30ea8478c343b8e95a429f06f3b3cadfc7f53adb597" },
-    { url = "https://download.pytorch.org/whl/cu124/torch-2.6.0%2Bcu124-cp312-cp312-win_amd64.whl", hash = "sha256:3313061c1fec4c7310cf47944e84513dcd27b6173b72a349bb7ca68d0ee6e9c0" },
+    { url = "https://download-r2.pytorch.org/whl/cu124/torch-2.6.0%2Bcu124-cp312-cp312-linux_x86_64.whl", hash = "sha256:a393b506844035c0dac2f30ea8478c343b8e95a429f06f3b3cadfc7f53adb597" },
+    { url = "https://download-r2.pytorch.org/whl/cu124/torch-2.6.0%2Bcu124-cp312-cp312-win_amd64.whl", hash = "sha256:3313061c1fec4c7310cf47944e84513dcd27b6173b72a349bb7ca68d0ee6e9c0" },
 ]
 
 [[package]]
@@ -2145,8 +2145,8 @@ dependencies = [
     { name = "torch" },
 ]
 wheels = [
-    { url = "https://download.pytorch.org/whl/cu124/torchaudio-2.6.0%2Bcu124-cp312-cp312-linux_x86_64.whl", hash = "sha256:3e5ffa69606171c74f3e2b969785ead50b782ca657e746aaee1ee7cc88dcfc08" },
-    { url = "https://download.pytorch.org/whl/cu124/torchaudio-2.6.0%2Bcu124-cp312-cp312-win_amd64.whl", hash = "sha256:004ff6bcee0ac78747253c09db67d281add4308a9b87a7bf1769da5914998639" },
+    { url = "https://download-r2.pytorch.org/whl/cu124/torchaudio-2.6.0%2Bcu124-cp312-cp312-linux_x86_64.whl", hash = "sha256:3e5ffa69606171c74f3e2b969785ead50b782ca657e746aaee1ee7cc88dcfc08" },
+    { url = "https://download-r2.pytorch.org/whl/cu124/torchaudio-2.6.0%2Bcu124-cp312-cp312-win_amd64.whl", hash = "sha256:004ff6bcee0ac78747253c09db67d281add4308a9b87a7bf1769da5914998639" },
 ]
 
 [[package]]

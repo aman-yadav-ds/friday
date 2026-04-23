@@ -3,9 +3,9 @@ requires = ["setuptools>=65.5.1"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "sign_language_translator"
+name = "Edith"
 version = "0.1.0"
-description = "Add your description here"
+description = "Personal assistant for the visually impaired, leveraging multimodal capabilities to provide a seamless and intuitive user experience."
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [

@@ -17,7 +17,7 @@ class MemorySupervisor:
             temperature=0.0  # CRITICAL: no creativity
         )
 
-        self.prompt = ChatPromptTemplate.from_messages([
+        self.extract_prompt = ChatPromptTemplate.from_messages([
             ("system",
              "You are a strict Memory Extraction Assistant.\n\n"
              "Your job is to distill the interaction into a single, factual memory string to be saved in a database.\n\n"
@@ -36,12 +36,25 @@ class MemorySupervisor:
              "Assistant replied: {assistant_text}\n")
         ])
 
+        self.retrieve_prompt = ChatPromptTemplate.from_messages([
+            ("system",
+             "You are a helpful assistant that tells the retriever if it should retrieve relevant memories based on the current user query.\n\n"
+             "RULES:\n"
+             "- If the user query references past events, actions, or established context that would be helpful for the assistant to recall, respond with YES.\n"
+             "- Otherwise, respond with NO."
+             "- Only respond with YES or NO. Do not explain your reasoning or provide any additional text."
+            ),
+            ("human",
+             "User query: {query}\n"
+            )
+        ])
+
     def extract(self, user_text: str, assistant_text: str,) -> str:
         """
         Returns distilled memory or 'NONE'
         """
 
-        result = (self.prompt | self.llm).invoke({
+        result = (self.extract_prompt | self.llm).invoke({
             "user_text": user_text,
             "assistant_text": assistant_text,
         })
@@ -56,3 +69,15 @@ class MemorySupervisor:
         memory = memory.split("\n")[0].strip()
 
         return memory
+    
+    def should_retrieve(self, query: str) -> bool:
+        """
+        Returns whether it should retrieve relevant memories based on the query and available memories.
+        """
+        result = (self.retrieve_prompt | self.llm).invoke({
+            "query": query
+        })
+
+        decision = result.content.strip().lower()
+
+        return decision in ["yes", "no"]

@@ -125,6 +125,8 @@ class Brain:
         memory_context = f"\n\nPast Memories:\n{relevant_memories}\n\n" if relevant_memories else ""
 
         # 4. Build the System Prompt with the injected memories
+        # 4. Build the System Prompt with the injected memories
+        # 4. Build the System Prompt with the injected memories
         system_prompt = SystemMessage(content=(
             f"You are {self._config.get('name', 'Edith')}, a helpful and precise AI assistant.\n"
             f"You are running on a {current_os} operating system.\n"
@@ -135,7 +137,13 @@ class Brain:
             f"1. When using tools to access the file system, ALWAYS use absolute paths based on the home directory.\n"
             f"2. Never guess usernames like 'username' or 'user'.\n"
             f"3. DO NOT use the `create_file` tool to save user preferences, names, rules, or conversational memories. "
-            f"Your memory is managed automatically by the system. Just acknowledge the user's request naturally in text."
+            f"Your memory is managed automatically by the system. Just acknowledge the user's request naturally in text.\n"
+            f"4. VOICE OUTPUT MODE (STRICT):\n"
+            f"   - Your text responses are spoken out loud by a TTS engine. NEVER output raw code blocks, markdown syntax (like ```), or long URLs in your conversational text.\n"
+            f"   - If the user asks you to write code, create a script, or save a file, YOU MUST USE THE `create_file` TOOL.\n"
+            f"   - NEVER write Python code that uses `with open(...)` to save files. That is unauthorized. USE THE `create_file` TOOL.\n"
+            f"   - Put the generated code strictly inside the `content` argument of the `create_file` tool.\n"
+            f"   - Keep your spoken text incredibly brief. For example: 'I have drafted the script and saved it to your Desktop, Boss.'"
         ))
 
         history = state["messages"]
@@ -200,26 +208,57 @@ class Brain:
         config = {"configurable": {"thread_id": thread_id}}
         full_response_content = ""
 
-        # Use atream to get node updates
-        async for msg, metadata in self.app.astream(
-            initial_backpack,
-            config=config,
-            stream_mode="messages"
-        ):
-            # We only care about messages coming from the 'manager' node
-            # and we want to ignore tool calls (those shouldn't be spoken)
-            if metadata["langgraph_node"] == "manager" and not isinstance(msg, ToolMessage):
-                content = msg.content
-                if content:
-                    full_response_content += content
-                    yield content  # Stream the Manager's thoughts to the Mouth as they come in
+        # --- Add these two variables right before the try block ---
+        in_code_block = False
+        speech_buffer = ""
 
+        try:
+            # Use astream to get node updates
+            async for msg, metadata in self.app.astream(
+                initial_backpack,
+                config=config,
+                stream_mode="messages"
+            ):
+                # We only care about messages coming from the 'manager' node
+                if metadata["langgraph_node"] == "manager" and not isinstance(msg, ToolMessage):
+                    content = msg.content
+                    if content:
+                        # 1. Always save the raw content so memory gets the actual code
+                        full_response_content += content
+                        speech_buffer += content
+
+                        # 2. Check if we are entering or exiting a markdown code block
+                        while "```" in speech_buffer:
+                            in_code_block = not in_code_block  # Toggle the silencer
+                            speech_buffer = speech_buffer.replace("```", "", 1)  # Strip the backticks
+                        
+                        # 3. If a chunk ends with partial backticks (e.g., "`" or "``"), 
+                        # hold it and wait for the next chunk to see if it completes the "```"
+                        if speech_buffer.endswith("`") or speech_buffer.endswith("``"):
+                            continue 
+                        
+                        # 4. Route the text based on our current state
+                        if not in_code_block and speech_buffer:
+                            # We are outside a code block. Clean up asterisks for the TTS and yield.
+                            clean_text = speech_buffer.replace("*", "")
+                            yield clean_text
+                            speech_buffer = ""  # Clear buffer after speaking
+                        
+                        elif in_code_block:
+                            # We are inside a code block. Silently dump the buffer.
+                            speech_buffer = ""
+
+        except Exception as e:
+            print(f"⚠️ Brain error: {e}")
+            fallback_text = "I'm sorry Boss, my neural net encountered a generation glitch while thinking about that. Could you try asking me differently?"
+            yield fallback_text
+            full_response_content += fallback_text
+            
         # After the stream is done, store the full response.
         if full_response_content.strip():
             print(f"Full response from Manager: {full_response_content}")
             print(f"Storing the user's request and the final answer in memory...")
             self.memory_manager.store(user_input, full_response_content)
-
 if __name__ == "__main__":
     async def test_memory():
         brain = Brain()

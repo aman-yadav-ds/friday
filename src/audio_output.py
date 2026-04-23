@@ -11,7 +11,7 @@ class AudioOutput:
     The 'Mouth' of the operation. 🗣️
     Converts text to speech using Piper TTS and plays it back via Pygame.
     """
-    def __init__(self, stop_event, config_path="config/config.yaml"):
+    def __init__(self, stop_event, config_path="config/audio_config.yaml"):
         self.config = read_yaml_config(config_path)
         self.voice_settings = self.config.get("voice_settings", {})
         self.stop_event = stop_event
@@ -122,7 +122,7 @@ class AudioOutput:
         """
         text_buffer = ""
         
-        for chunk in text_stream:
+        async for chunk in text_stream:
             # Check for interruption
             if self.stop_event.is_set():
                 break

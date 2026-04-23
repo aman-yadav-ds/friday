@@ -1,6 +1,5 @@
 import chromadb
 from chromadb.utils import embedding_functions
-import os
 import time
 import uuid
 from utils.helpers import read_yaml_config

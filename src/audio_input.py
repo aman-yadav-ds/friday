@@ -15,7 +15,7 @@ load_dotenv()
 
 class AudioInput:
     """
-    The 'Ear' of the operation. 👂
+    The 'Ear' of the operation.
     Responsible for listening to the microphone, detecting voice activity (VAD),
     and transcribing speech to text using Faster-Whisper.
     """
@@ -67,7 +67,7 @@ class AudioInput:
         print("  - Loading 'small.en' Whisper model...")
         self.transcription_model = WhisperModel(
             "small.en",
-            device="cpu" if self.cuda_available else "cpu",
+            device="cuda" if self.cuda_available else "cpu",
             compute_type="float16" if self.cuda_available else "int8",  # Quantized for CPU efficiency
             num_workers=2,
             cpu_threads=4
@@ -103,7 +103,7 @@ class AudioInput:
 
         return ("audio.wav", buffer.read(), "audio/wav")
 
-    def mic_callback(self, in_data):
+    def mic_callback(self, in_data, frame_count, time_info, status):
         """
         PyAudio callback.
         This needs to be lightning fast. Grab the data, shove it in the queue, and get out.
@@ -308,7 +308,7 @@ class AudioInput:
 
                         if self.deserves_transcription(audio_buffer):
                             print("🔇 End of turn. Valid speech.")
-                            await self.process_audio_input(audio_buffer, is_final=True)
+                            await self.process_audio_input(audio_buffer)
                         else:
                             print("🗑️ Discarded low-quality turn.")
 
@@ -316,7 +316,7 @@ class AudioInput:
                         silence_counter = 0
                     # else: inside grace period, ignore silence
 
-    async def process_audio_input(self, audio_buffer, is_final=False):
+    async def process_audio_input(self, audio_buffer):
         if not audio_buffer:
             return
         audio_data = b''.join(audio_buffer)
@@ -325,7 +325,7 @@ class AudioInput:
         await self.transcription_queue.put(audio_float32)
 
 
-async def transcription_loop(self):
+    async def transcription_loop(self):
         """The Scribe. Lean and fast."""
         while True:
             audio_float32 = await self.transcription_queue.get()

@@ -34,7 +34,13 @@ class MemoryManager:
         Returns a formatted string to be injected into the system prompt.
         """
         try:
-            results = self.store_db.search_memory(query, n_results=1)
+            should_retrieve = self.supervisor.should_retrieve(query)
+            if not should_retrieve:
+                print(f"🚫 Memory retrieval deemed unnecessary by supervisor: {should_retrieve}")
+                return ""
+            else:
+                print(f"✅ Memory retrieval approved by supervisor: {should_retrieve}")
+                results = self.store_db.search_memory(query, n_results=3)
             if not results:
                 return ""
             
